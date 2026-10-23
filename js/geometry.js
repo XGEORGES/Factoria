@@ -397,6 +397,9 @@ export function evaluateInterMachineSnap(movingMachine, otherMachines = [], opti
 
   for (const other of otherMachines) {
     if (!other.isPlaced || other.id === movingMachine.id) continue;
+    // Evitar auto-snap entre una zona contenedor y sus propios objetos contenidos
+    if (movingMachine.parentId && other.id === movingMachine.parentId) continue;
+    if (other.parentId && other.parentId === movingMachine.id) continue;
 
     // Pre-filtro rápido por distancia entre centroides
     const distCentroids = Math.hypot(movingMachine.x - other.x, movingMachine.y - other.y);

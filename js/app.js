@@ -44,6 +44,10 @@ class LayoutPlannerApp {
     const savedSnap = localStorage.getItem('factoria_wall_snap_enabled');
     this.wallSnapEnabled = savedSnap !== null ? savedSnap === 'true' : true;
 
+    // Snap y Auto-alineación entre Objetos y Zonas (activado por defecto, configurable por usuario)
+    const savedObjSnap = localStorage.getItem('factoria_object_snap_enabled');
+    this.objectSnapEnabled = savedObjSnap !== null ? savedObjSnap === 'true' : true;
+
     this.initElements();
     this.initCanvasEngine();
     this.initDragAndDrop();
@@ -118,6 +122,8 @@ class LayoutPlannerApp {
     this.btnToggleClearance = document.getElementById('btn-toggle-clearance');
     this.btnToggleWallSnap = document.getElementById('btn-toggle-wall-snap');
     this.statusSnapIndicator = document.getElementById('status-snap-indicator');
+    this.btnToggleObjectSnap = document.getElementById('btn-toggle-object-snap');
+    this.statusObjectSnapIndicator = document.getElementById('status-object-snap-indicator');
   }
 
   initCanvasEngine() {
@@ -211,7 +217,7 @@ class LayoutPlannerApp {
 
     // Evaluamos si cae cerca a un muro o máquina para snap
     const disableWallSnap = !this.wallSnapEnabled || this.isCtrlPressed || this.isShiftPressed;
-    const disableSnap = this.isCtrlPressed || this.isShiftPressed;
+    const disableSnap = !this.objectSnapEnabled || this.isCtrlPressed || this.isShiftPressed;
     let wallSnapRes = { snapped: false };
 
     if (parentZone) {
@@ -374,7 +380,7 @@ class LayoutPlannerApp {
 
     // Evaluamos si el duplicado se pega a algún muro o máquina
     const disableWallSnap = !this.wallSnapEnabled || this.isCtrlPressed || this.isShiftPressed;
-    const disableSnap = this.isCtrlPressed || this.isShiftPressed;
+    const disableSnap = !this.objectSnapEnabled || this.isCtrlPressed || this.isShiftPressed;
     const wallSnapRes = evaluateWallSnap(duplicated, { disableSnap: disableWallSnap });
     const machineSnapRes = evaluateInterMachineSnap(duplicated, this.machines, { disableSnap });
 
@@ -715,7 +721,7 @@ class LayoutPlannerApp {
         };
 
         const disableWallSnap = !this.wallSnapEnabled || this.isCtrlPressed || this.isShiftPressed;
-        const disableSnap = this.isCtrlPressed || this.isShiftPressed;
+        const disableSnap = !this.objectSnapEnabled || this.isCtrlPressed || this.isShiftPressed;
 
         if (selected.isZone) {
           // Snap de la zona contra los muros perimetrales del taller y entre máquinas externas
@@ -1041,6 +1047,15 @@ class LayoutPlannerApp {
 
     this.statusSnapIndicator?.addEventListener('click', () => {
       this.toggleWallSnap();
+    });
+
+    // Alternar Snap y Auto-alineación entre Objetos y Zonas
+    this.btnToggleObjectSnap?.addEventListener('click', () => {
+      this.toggleObjectSnap();
+    });
+
+    this.statusObjectSnapIndicator?.addEventListener('click', () => {
+      this.toggleObjectSnap();
     });
 
     // Herramienta Línea Constructiva (Referencia)
@@ -1629,25 +1644,60 @@ class LayoutPlannerApp {
       localStorage.setItem('factoria_wall_snap_enabled', String(this.wallSnapEnabled));
     } catch (e) {}
     this.updateSnapUI();
+    if (!this.wallSnapEnabled && this.engine.snapGuide && !this.engine.snapGuide.text) {
+      this.engine.setSnapGuide(null);
+      this.engine.requestRender();
+    }
     this.showToast(this.wallSnapEnabled ? '🧲 Snap a muros: ACTIVADO' : '🧲 Snap a muros: DESACTIVADO (libre orientación)');
+  }
+
+  toggleObjectSnap(forceState) {
+    this.objectSnapEnabled = typeof forceState === 'boolean' ? forceState : !this.objectSnapEnabled;
+    try {
+      localStorage.setItem('factoria_object_snap_enabled', String(this.objectSnapEnabled));
+    } catch (e) {}
+    this.updateSnapUI();
+    if (!this.objectSnapEnabled && this.engine.snapGuide && this.engine.snapGuide.text) {
+      this.engine.setSnapGuide(null);
+      this.engine.requestRender();
+    }
+    this.showToast(this.objectSnapEnabled ? '🧩 Snap entre objetos y zonas: ACTIVADO' : '🧩 Snap entre objetos y zonas: DESACTIVADO (movimiento libre)');
   }
 
   updateSnapUI() {
     if (this.btnToggleWallSnap) {
       this.btnToggleWallSnap.classList.toggle('active', this.wallSnapEnabled);
       this.btnToggleWallSnap.title = this.wallSnapEnabled
-        ? 'Snap Magnético a Muros: ACTIVADO (Clic o F3/S para desactivar)'
-        : 'Snap Magnético a Muros: DESACTIVADO (Clic o F3/S para activar)';
+        ? 'Snap Magnético a Muros: ACTIVADO (Clic para desactivar)'
+        : 'Snap Magnético a Muros: DESACTIVADO (Clic para activar)';
     }
     if (this.statusSnapIndicator) {
       if (this.wallSnapEnabled) {
         this.statusSnapIndicator.textContent = '🧲 Snap Muros: ON';
         this.statusSnapIndicator.className = 'legend-chip snap-badge active-snap';
-        this.statusSnapIndicator.title = 'Snap Magnético a Muros: ACTIVADO (Clic o F3/S para desactivar)';
+        this.statusSnapIndicator.title = 'Snap Magnético a Muros: ACTIVADO (Clic para desactivar)';
       } else {
         this.statusSnapIndicator.textContent = '🧲 Snap Muros: OFF';
         this.statusSnapIndicator.className = 'legend-chip snap-badge disabled-snap';
-        this.statusSnapIndicator.title = 'Snap Magnético a Muros: DESACTIVADO (Clic o F3/S para activar)';
+        this.statusSnapIndicator.title = 'Snap Magnético a Muros: DESACTIVADO (Clic para activar)';
+      }
+    }
+
+    if (this.btnToggleObjectSnap) {
+      this.btnToggleObjectSnap.classList.toggle('active', this.objectSnapEnabled);
+      this.btnToggleObjectSnap.title = this.objectSnapEnabled
+        ? 'Snap y Auto-alineación entre Objetos y Zonas: ACTIVADO (Clic para desactivar)'
+        : 'Snap y Auto-alineación entre Objetos y Zonas: DESACTIVADO (Clic para activar)';
+    }
+    if (this.statusObjectSnapIndicator) {
+      if (this.objectSnapEnabled) {
+        this.statusObjectSnapIndicator.textContent = '🧩 Snap Objetos: ON';
+        this.statusObjectSnapIndicator.className = 'legend-chip snap-badge active-snap';
+        this.statusObjectSnapIndicator.title = 'Snap y Offsets entre Objetos y Zonas: ACTIVADO (Clic para desactivar)';
+      } else {
+        this.statusObjectSnapIndicator.textContent = '🧩 Snap Objetos: OFF';
+        this.statusObjectSnapIndicator.className = 'legend-chip snap-badge disabled-snap';
+        this.statusObjectSnapIndicator.title = 'Snap y Offsets entre Objetos y Zonas: DESACTIVADO (Clic para activar)';
       }
     }
   }

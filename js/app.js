@@ -250,7 +250,7 @@ class LayoutPlannerApp {
         quantity: 1,
         category: selected.category || 'Mobiliario',
         color: selected.color || '#0284c7',
-        wallOffset: selected.wallOffset || 0.80,
+        wallOffset: selected.wallOffset !== undefined ? selected.wallOffset : 0.80,
         clearanceOffsets: Array.isArray(selected.clearanceOffsets) ? [...selected.clearanceOffsets] : [0.00, 0.00, 0.00, 0.00],
         isCustom: true
       };
@@ -1100,7 +1100,9 @@ class LayoutPlannerApp {
     this.inspWallOffset?.addEventListener('input', (e) => {
       const selected = this.getSelectedMachine();
       if (selected) {
-        selected.wallOffset = Math.max(0.10, Math.min(10.0, parseFloat(e.target.value) || 0.80));
+        const parsed = parseFloat(e.target.value);
+        const val = isNaN(parsed) ? 0.80 : Math.max(0.00, Math.min(10.0, parsed));
+        selected.wallOffset = Number(val.toFixed(2));
         this.saveState();
       }
     });
@@ -1738,7 +1740,8 @@ class LayoutPlannerApp {
       const category = catSelect?.value || (isZone ? 'Zonas y Recintos' : 'Personalizado');
       const width = parseFloat(widthInput?.value);
       const height = parseFloat(heightInput?.value);
-      const wallOffset = parseFloat(document.getElementById('new-obj-wall-offset')?.value) || 0.80;
+      const wallOffsetRaw = parseFloat(document.getElementById('new-obj-wall-offset')?.value);
+      const wallOffset = isNaN(wallOffsetRaw) ? 0.80 : Math.max(0.00, Math.min(10.0, wallOffsetRaw));
       const clearanceVal = parseFloat(document.getElementById('new-obj-clearance')?.value) || 0.00;
       const color = colorInput?.value || (isZone ? '#6366f1' : '#0284c7');
 

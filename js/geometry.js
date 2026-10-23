@@ -95,8 +95,9 @@ export function getWorkshopBounds() {
 
 /**
  * Comprueba si un punto (x, y) en metros está dentro del polígono del taller (Ray Casting)
+ * Incluye tolerancia milimétrica (0.005 m = 5 mm) para aristas límite con wallOffset = 0.00 m
  */
-export function isPointInsidePerimeter(px, py) {
+export function isPointInsidePerimeter(px, py, tolerance = 0.005) {
   const vertices = PERIMETER_VERTICES;
   let inside = false;
   for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
@@ -106,7 +107,22 @@ export function isPointInsidePerimeter(px, py) {
       (px < (xj - xi) * (py - yi) / (yj - yi) + xi);
     if (intersect) inside = !inside;
   }
-  return inside;
+  if (inside) return true;
+
+  // Tolerancia milimétrica sobre las paredes del perímetro para permitir acoplamiento a ras (0.00 m)
+  if (tolerance > 0) {
+    const n = vertices.length;
+    for (let i = 0; i < n; i++) {
+      const p1 = vertices[i];
+      const p2 = vertices[(i + 1) % n];
+      const res = pointToSegmentDistance(px, py, p1, p2);
+      if (res.distance <= tolerance) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 /**

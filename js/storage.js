@@ -42,7 +42,7 @@ export function exportLayoutJSON(machines, constructionLines = [], viewTransform
 
   const exportData = {
     app: "Taller CNC 2D Layout Planner",
-    version: "2.0-29-MACHINES-QTY",
+    version: "2.1-ZONES-PARENT-CHILD",
     timestamp: new Date().toISOString(),
     totalAssets: machines.length,
     placedCount: machines.filter(m => m.isPlaced).length,
@@ -60,7 +60,8 @@ export function exportLayoutJSON(machines, constructionLines = [], viewTransform
         ? c.clearanceOffsets.map(Number) 
         : [0.00, 0.00, 0.00, 0.00],
       isCustom: Boolean(c.isCustom),
-      isUnique: Boolean(c.isUnique)
+      isUnique: Boolean(c.isUnique),
+      isZone: Boolean(c.isZone)
     })),
     constructionLines: (constructionLines || []).map(l => ({
       id: l.id,
@@ -89,7 +90,9 @@ export function exportLayoutJSON(machines, constructionLines = [], viewTransform
       isPlaced: Boolean(m.isPlaced),
       category: m.category || "General",
       color: m.color || "#0284c7",
-      isCustom: Boolean(m.isCustom)
+      isCustom: Boolean(m.isCustom),
+      isZone: Boolean(m.isZone),
+      parentId: m.parentId || null
     }))
   };
 
@@ -143,7 +146,8 @@ export function validateLayoutData(data) {
           ? savedItem.clearanceOffsets.map(Number)
           : [0.00, 0.00, 0.00, 0.00],
         isCustom: true,
-        isUnique: Boolean(savedItem.isUnique)
+        isUnique: Boolean(savedItem.isUnique),
+        isZone: Boolean(savedItem.isZone)
       });
     }
   }
@@ -165,7 +169,8 @@ export function validateLayoutData(data) {
       category: "Personalizado",
       color: "#64748b",
       wallOffset: 0.80,
-      clearanceOffsets: [0.00, 0.00, 0.00, 0.00]
+      clearanceOffsets: [0.00, 0.00, 0.00, 0.00],
+      isZone: Boolean(raw.isZone)
     };
 
     restoredMachines.push({
@@ -187,7 +192,9 @@ export function validateLayoutData(data) {
       clearanceOffsets: Array.isArray(raw.clearanceOffsets) && raw.clearanceOffsets.length === 4
         ? raw.clearanceOffsets.map(Number)
         : [...(base.clearanceOffsets || [0.00, 0.00, 0.00, 0.00])],
-      isPlaced: Boolean(raw.isPlaced)
+      isPlaced: Boolean(raw.isPlaced),
+      isZone: Boolean(raw.isZone !== undefined ? raw.isZone : base.isZone),
+      parentId: raw.parentId || null
     });
   }
 

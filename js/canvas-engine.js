@@ -164,12 +164,7 @@ export class CanvasEngine {
           continue;
         }
 
-        // 2. Dos objetos hijos pertenecientes a DIFERENTES zonas no colisionan entre sí
-        if (m1.parentId && m2.parentId && m1.parentId !== m2.parentId) {
-          continue;
-        }
-
-        // 3. Dos objetos hijos dentro de la MISMA zona: SÍ colisionan si se superponen o invaden clearance
+        // 2. Dos objetos hijos dentro de la MISMA zona: SÍ colisionan si se superponen o invaden clearance
         if (m1.parentId && m2.parentId && m1.parentId === m2.parentId) {
           if (checkMachineMachineCollision(m1, m2)) {
             this.collisionMap.set(m1.id, true);
@@ -178,7 +173,13 @@ export class CanvasEngine {
           continue;
         }
 
-        // 4. Cualquier otra combinación (Zona vs Zona, Zona vs Máquina externa, Máquina vs Máquina)
+        // 3. Si uno o ambos son hijos de zonas diferentes o un hijo frente al exterior:
+        // La zona contenedora actúa como barrera física. El hijo se valida con isMachineInsideZone.
+        if (m1.parentId || m2.parentId) {
+          continue;
+        }
+
+        // 4. Entidades principales de planta (Zona vs Zona, Zona vs Máquina externa, Máquina vs Máquina)
         if (checkMachineMachineCollision(m1, m2)) {
           this.collisionMap.set(m1.id, true);
           this.collisionMap.set(m2.id, true);

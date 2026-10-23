@@ -10,7 +10,7 @@ import { CanvasEngine } from './canvas-engine.js';
 import { evaluateWallSnap } from './wall-snap.js';
 import { downloadDXF } from './dxf-exporter.js';
 import { exportLayoutJSON, importLayoutFromFile, saveToLocalStorage, loadFromLocalStorage } from './storage.js';
-import { getWorkshopBounds, findClosestWall, evaluateInterMachineSnap, isPointInsideMachine, isMachineInsideZone, getZoneInnerWallSegments } from './geometry.js';
+import { getWorkshopBounds, findClosestWall, evaluateInterMachineSnap, isPointInsideMachine, isMachineInsideZone, getZoneInnerWallSegments, getWallSegments, pointToSegmentDistance } from './geometry.js';
 
 class LayoutPlannerApp {
   constructor() {
@@ -985,7 +985,15 @@ class LayoutPlannerApp {
     this.inspX?.addEventListener('change', (e) => {
       const selected = this.getSelectedMachine();
       if (selected) {
-        selected.x = Number(parseFloat(e.target.value) || 0);
+        const newX = Number(parseFloat(e.target.value) || 0);
+        const deltaX = newX - selected.x;
+        selected.x = newX;
+        if (selected.isZone && Math.abs(deltaX) > 0.001) {
+          const children = this.machines.filter(m => m.parentId === selected.id && m.isPlaced);
+          children.forEach(c => {
+            c.x = Number((c.x + deltaX).toFixed(2));
+          });
+        }
         this.engine.updateCollisions();
         this.engine.requestRender();
         this.saveState();
@@ -995,7 +1003,15 @@ class LayoutPlannerApp {
     this.inspY?.addEventListener('change', (e) => {
       const selected = this.getSelectedMachine();
       if (selected) {
-        selected.y = Number(parseFloat(e.target.value) || 0);
+        const newY = Number(parseFloat(e.target.value) || 0);
+        const deltaY = newY - selected.y;
+        selected.y = newY;
+        if (selected.isZone && Math.abs(deltaY) > 0.001) {
+          const children = this.machines.filter(m => m.parentId === selected.id && m.isPlaced);
+          children.forEach(c => {
+            c.y = Number((c.y + deltaY).toFixed(2));
+          });
+        }
         this.engine.updateCollisions();
         this.engine.requestRender();
         this.saveState();
@@ -1144,7 +1160,13 @@ class LayoutPlannerApp {
     this.btnInspSnap?.addEventListener('click', () => {
       const selected = this.getSelectedMachine();
       if (selected) {
-        const snapRes = evaluateWallSnap(selected, { disableSnap: false });
+        let parentZone = null;
+        if (selected.parentId) {
+          parentZone = this.machines.find(m => m.id === selected.parentId && m.isPlaced);
+        }
+        const customWalls = parentZone ? getZoneInnerWallSegments(parentZone) : null;
+        const snapRes = evaluateWallSnap(selected, { disableSnap: false, customWalls });
+
         if (snapRes.snapped) {
           selected.x = snapRes.snappedMachine.x;
           selected.y = snapRes.snappedMachine.y;
@@ -1153,15 +1175,26 @@ class LayoutPlannerApp {
           this.engine.requestRender();
           this.updateInspector();
           this.saveState();
-          this.showToast('Máquina alineada al muro con offset métrico.');
+          this.showToast(parentZone ? 'Mueble alineado a la pared interior del cuarto.' : 'Máquina alineada al muro con offset métrico.');
         } else {
           // Si estaba a más de 0.60m, encontramos el muro más próximo de todos modos
-          const closest = findClosestWall(selected.x, selected.y);
+          const walls = customWalls || getWallSegments();
+          let closest = null;
+          let minDistance = Infinity;
+
+          for (const wall of walls) {
+            const res = pointToSegmentDistance(selected.x, selected.y, wall.start, wall.end);
+            if (res.distance < minDistance) {
+              minDistance = res.distance;
+              closest = { wall, distance: res.distance, closestPoint: res.closestPoint };
+            }
+          }
+
           if (closest) {
             // Forzar snap acercándola
-            selected.x = closest.closestPoint.x + closest.wall.normal.x * 0.50;
-            selected.y = closest.closestPoint.y + closest.wall.normal.y * 0.50;
-            const res = evaluateWallSnap(selected, { disableSnap: false });
+            selected.x = Number((closest.closestPoint.x + closest.wall.normal.x * 0.40).toFixed(2));
+            selected.y = Number((closest.closestPoint.y + closest.wall.normal.y * 0.40).toFixed(2));
+            const res = evaluateWallSnap(selected, { disableSnap: false, customWalls });
             if (res.snapped) {
               selected.x = res.snappedMachine.x;
               selected.y = res.snappedMachine.y;
@@ -1171,7 +1204,7 @@ class LayoutPlannerApp {
             this.engine.requestRender();
             this.updateInspector();
             this.saveState();
-            this.showToast('Máquina alineada al muro más cercano.');
+            this.showToast(parentZone ? 'Mueble alineado a la pared interior más cercana.' : 'Máquina alineada al muro más cercano.');
           }
         }
       }
@@ -1458,6 +1491,14 @@ class LayoutPlannerApp {
             if (sel && (sel.catalogId === item.id || sel.id === item.id)) {
               this.selectMachine(null);
             }
+          }
+          if (item.isZone) {
+            const deletedZoneIds = this.machines.filter(m => m.catalogId === item.id).map(m => m.id);
+            this.machines.forEach(m => {
+              if (deletedZoneIds.includes(m.parentId)) {
+                m.parentId = null;
+              }
+            });
           }
           this.machines = this.machines.filter(m => m.catalogId !== item.id);
           this.catalog = this.catalog.filter(c => c.id !== item.id);

@@ -1,5 +1,5 @@
 import { INITIAL_MACHINES_CATALOG, createFreshInventory } from './js/catalog.js';
-import { PERIMETER_VERTICES, calculatePerimeterArea, checkMachineMachineCollision, isMachineFullyInsidePerimeter, getMachineClearanceOffsets, getMachineClearanceCorners, checkMachineBodyCollision, evaluateInterMachineSnap } from './js/geometry.js';
+import { PERIMETER_VERTICES, calculatePerimeterArea, checkMachineMachineCollision, isMachineFullyInsidePerimeter, getMachineClearanceOffsets, getMachineClearanceCorners, checkMachineBodyCollision, evaluateInterMachineSnap, isMachineInsideZone, getZoneInnerWallSegments } from './js/geometry.js';
 import { evaluateWallSnap } from './js/wall-snap.js';
 import { generateDXF } from './js/dxf-exporter.js';
 import { validateLayoutData } from './js/storage.js';
@@ -176,4 +176,103 @@ const snapResult = evaluateInterMachineSnap({ ...comp2, x: 7.1 }, [comp1], 0.3);
 if (!snapResult.snapped) throw new Error('Inter-machine snap failed near boundary');
 console.log('Inter-machine snap docking: PASSED (' + snapResult.snapGuide.text + ')');
 
-console.log('ALL 5 TEST SUITES PASSED SUCCESSFULLY! ✓');
+console.log('--- TEST 6: ZONES & PARENT-CHILD ARCHITECTURE ---');
+const testZone = {
+  id: 'zone_metro',
+  catalogId: 'cat_zone_metro',
+  name: 'ÁREA METROLOGÍA',
+  width: 6.0,
+  height: 4.0,
+  x: 10.0,
+  y: 15.0,
+  rotation: 0,
+  labelRotation: 90,
+  operatorEdge: 0,
+  offsetEdge: 2,
+  wallOffset: 0.80,
+  clearanceOffsets: [0.5, 0.5, 0.5, 0.5],
+  isPlaced: true,
+  isZone: true,
+  parentId: null
+};
+
+const childMesa1 = {
+  id: 'mesa_in_1',
+  catalogId: 'cat_mesa',
+  name: 'MESA CALIBRACIÓN #1',
+  width: 1.5,
+  height: 0.8,
+  x: 9.0,
+  y: 14.0,
+  rotation: 0,
+  offsetEdge: 0,
+  wallOffset: 0.20,
+  clearanceOffsets: [0.0, 0.0, 0.0, 0.0],
+  isPlaced: true,
+  isZone: false,
+  parentId: 'zone_metro'
+};
+
+const childMesa2 = {
+  id: 'mesa_in_2',
+  catalogId: 'cat_mesa',
+  name: 'MESA CALIBRACIÓN #2',
+  width: 1.5,
+  height: 0.8,
+  x: 12.0,
+  y: 14.0,
+  rotation: 0,
+  offsetEdge: 0,
+  wallOffset: 0.20,
+  clearanceOffsets: [0.0, 0.0, 0.0, 0.0],
+  isPlaced: true,
+  isZone: false,
+  parentId: 'zone_metro'
+};
+
+// 1. Verificación de contención de hijos dentro de zona
+if (!isMachineInsideZone(childMesa1, testZone)) throw new Error('childMesa1 must be inside testZone');
+if (!isMachineInsideZone(childMesa2, testZone)) throw new Error('childMesa2 must be inside testZone');
+
+// Mesa que se sale de la zona
+const outMesa = { ...childMesa1, y: 17.5 };
+if (isMachineInsideZone(outMesa, testZone)) throw new Error('outMesa should NOT be inside testZone');
+console.log('Zone containment verification: PASSED');
+
+// 2. Snap magnético a paredes interiores del cuarto
+const zoneInnerWalls = getZoneInnerWallSegments(testZone);
+if (zoneInnerWalls.length !== 4) throw new Error('Zone must produce exactly 4 inner wall segments');
+const innerSnapRes = evaluateWallSnap(childMesa1, { customWalls: zoneInnerWalls });
+if (!innerSnapRes.snapped) throw new Error('Child table failed to snap to zone interior wall');
+if (Math.abs(innerSnapRes.snappedMachine.y - 13.6) > 0.01) {
+  throw new Error(`Inner snap Y expected 13.6, got ${innerSnapRes.snappedMachine.y}`);
+}
+console.log('Interior wall snap with custom offset: PASSED (y=' + innerSnapRes.snappedMachine.y + 'm)');
+
+// 3. Persistencia en Storage con validación de Zonas y ParentId
+const zonePayload = {
+  app: 'Taller CNC 2D Layout Planner',
+  version: '2.1-ZONES-PARENT-CHILD',
+  catalog: [
+    { id: 'cat_zone_metro', name: 'ÁREA METROLOGÍA', width: 6.0, height: 4.0, isZone: true, isCustom: true },
+    { id: 'cat_mesa', name: 'MESA CALIBRACIÓN', width: 1.5, height: 0.8, isZone: false, isCustom: true }
+  ],
+  machines: [testZone, childMesa1, childMesa2],
+  constructionLines: []
+};
+const restoredZoneData = validateLayoutData(zonePayload);
+const rZone = restoredZoneData.machines.find(m => m.id === 'zone_metro');
+const rChild = restoredZoneData.machines.find(m => m.id === 'mesa_in_1');
+if (!rZone || !rZone.isZone) throw new Error('Restored zone lost isZone flag');
+if (!rChild || rChild.parentId !== 'zone_metro') throw new Error('Restored child lost parentId link');
+console.log('Storage validation of Zones and Parent-Child links: PASSED');
+
+// 4. Generación DXF de Zonas en capa dedicada
+const zoneDXF = generateDXF(restoredZoneData.machines, []);
+if (!zoneDXF.includes('ZONAS_RECINTOS')) throw new Error('DXF missing dedicated ZONAS_RECINTOS layer');
+if (!zoneDXF.includes('ÁREA METROLOGÍA') && !zoneDXF.includes('AREA METROLOGIA')) {
+  throw new Error('DXF missing Zone title text');
+}
+console.log('DXF export with ZONAS_RECINTOS layer: PASSED');
+
+console.log('ALL 6 TEST SUITES PASSED SUCCESSFULLY! ✓');

@@ -60,7 +60,9 @@ export function evaluateWallSnap(machine, options = {}) {
     return { snapped: false };
   }
 
-  const walls = getWallSegments();
+  const walls = Array.isArray(options.customWalls) && options.customWalls.length > 0
+    ? options.customWalls
+    : getWallSegments();
   const corners = getMachineCorners(machine);
   const offsetEdgeMetrics = getEdgeLocalMetrics(machine, machine.offsetEdge);
   const offsetEdgeSegment = getMachineEdgeSegment(machine, machine.offsetEdge);

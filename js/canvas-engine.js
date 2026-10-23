@@ -16,7 +16,9 @@ import {
   checkMachineMachineCollision,
   getMachineClearanceCorners,
   getMachineClearanceOffsets,
-  getMachineClearanceEdgeSegment
+  getMachineClearanceEdgeSegment,
+  isMachineInsideZone,
+  isPointInsideMachine
 } from './geometry.js';
 
 export class CanvasEngine {
@@ -129,8 +131,9 @@ export class CanvasEngine {
 
   /**
    * Actualiza el cálculo continuo de colisiones (SAT y límites perimetrales)
-   * Especificación 6.1: Si hay solape entre dos máquinas o salida del polígono,
-   * el relleno de las piezas en colisión cambia a RGBA(255, 0, 0, 0.45).
+   * Soporta jerarquía Padre-Hijo (Zonas/Recintos y objetos anidados).
+   * Si hay solape entre dos máquinas, salida del taller o invasión indebida,
+   * el elemento se registra en collisionMap y se alerta visualmente en rojo.
    */
   updateCollisions() {
     this.collisionMap.clear();
@@ -139,14 +142,43 @@ export class CanvasEngine {
     for (let i = 0; i < placed.length; i++) {
       const m1 = placed[i];
 
-      // Verificación de salida del polígono del taller
-      if (!isMachineFullyInsidePerimeter(m1)) {
-        this.collisionMap.set(m1.id, true);
+      // Verificación de salida del polígono del taller para zonas y objetos sin contenedor
+      if (!m1.parentId) {
+        if (!isMachineFullyInsidePerimeter(m1)) {
+          this.collisionMap.set(m1.id, true);
+        }
+      } else {
+        // Objeto hijo: comprobar si sus límites sobrepasan la zona contenedora
+        const parentZone = placed.find(z => z.id === m1.parentId && z.isPlaced);
+        if (parentZone && !isMachineInsideZone(m1, parentZone)) {
+          this.collisionMap.set(m1.id, true);
+        }
       }
 
-      // Verificación máquina contra otras máquinas (SAT)
+      // Verificación entre pares de entidades
       for (let j = i + 1; j < placed.length; j++) {
         const m2 = placed[j];
+
+        // 1. Relación Padre-Hijo directa: no colisionan entre sí (el hijo vive dentro de su zona)
+        if ((m1.isZone && m2.parentId === m1.id) || (m2.isZone && m1.parentId === m2.id)) {
+          continue;
+        }
+
+        // 2. Dos objetos hijos pertenecientes a DIFERENTES zonas no colisionan entre sí
+        if (m1.parentId && m2.parentId && m1.parentId !== m2.parentId) {
+          continue;
+        }
+
+        // 3. Dos objetos hijos dentro de la MISMA zona: SÍ colisionan si se superponen o invaden clearance
+        if (m1.parentId && m2.parentId && m1.parentId === m2.parentId) {
+          if (checkMachineMachineCollision(m1, m2)) {
+            this.collisionMap.set(m1.id, true);
+            this.collisionMap.set(m2.id, true);
+          }
+          continue;
+        }
+
+        // 4. Cualquier otra combinación (Zona vs Zona, Zona vs Máquina externa, Máquina vs Máquina)
         if (checkMachineMachineCollision(m1, m2)) {
           this.collisionMap.set(m1.id, true);
           this.collisionMap.set(m2.id, true);
@@ -509,16 +541,282 @@ export class CanvasEngine {
   }
 
   /**
-   * Dibuja todas las máquinas colocadas en el lienzo
+   * Dibuja todas las máquinas colocadas en el lienzo.
+   * Las zonas/recintos se renderizan primero en la capa de fondo (Z-Index inferior),
+   * y los objetos/muebles se renderizan encima (Z-Index superior).
    */
   drawMachines() {
     const placed = this.machines.filter(m => m.isPlaced);
+    const zones = placed.filter(m => m.isZone);
+    const nonZones = placed.filter(m => !m.isZone);
 
-    for (const m of placed) {
+    // 1. Capa de Fondo: Zonas y Recintos
+    for (const z of zones) {
+      const isSelected = z.id === this.selectedMachineId;
+      const isColliding = this.collisionMap.get(z.id) === true;
+      this.drawSingleZone(z, isSelected, isColliding);
+    }
+
+    // 2. Capa Superior: Máquinas, Mesas y Mobiliario
+    for (const m of nonZones) {
       const isSelected = m.id === this.selectedMachineId;
       const isColliding = this.collisionMap.get(m.id) === true;
       this.drawSingleMachine(m, isSelected, isColliding);
     }
+  }
+
+  /**
+   * Dibuja un recinto / zona contenedora con estilo arquitectónico CAD
+   */
+  drawSingleZone(z, isSelected, isColliding) {
+    const ctx = this.ctx;
+    const corners = getMachineCorners(z);
+    const screenCorners = corners.map(c => this.worldToScreen(c.x, c.y));
+    const centroid = this.worldToScreen(z.x, z.y);
+
+    // 1. ZONA DE SEGURIDAD / CLEARANCE EXTERIOR DE LA ZONA (4 CARAS)
+    const clearanceOffsets = getMachineClearanceOffsets(z);
+    const hasClearance = clearanceOffsets.some(v => v > 0);
+    const showClearance = (this.showClearanceZones || isSelected) && hasClearance;
+
+    if (showClearance) {
+      const clearanceCorners = getMachineClearanceCorners(z);
+      const screenClearance = clearanceCorners.map(c => this.worldToScreen(c.x, c.y));
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(screenClearance[0].x, screenClearance[0].y);
+      for (let i = 1; i < screenClearance.length; i++) {
+        ctx.lineTo(screenClearance[i].x, screenClearance[i].y);
+      }
+      ctx.closePath();
+
+      if (isColliding) {
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.12)';
+        ctx.strokeStyle = 'rgba(239, 68, 68, 0.85)';
+      } else if (isSelected) {
+        ctx.fillStyle = 'rgba(99, 102, 241, 0.08)';
+        ctx.strokeStyle = '#818cf8';
+      } else {
+        ctx.fillStyle = 'rgba(99, 102, 241, 0.03)';
+        ctx.strokeStyle = 'rgba(99, 102, 241, 0.35)';
+      }
+      ctx.lineWidth = isSelected ? 1.8 : 1.2;
+      ctx.setLineDash([6, 4]);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+
+      if (isSelected || (this.scale >= 22 && this.showClearanceZones)) {
+        this.drawClearanceLabels(z, screenClearance, clearanceOffsets);
+      }
+    }
+
+    // 2. CONTORNO Y FONDO ARQUITECTÓNICO DE LA ZONA
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(screenCorners[0].x, screenCorners[0].y);
+    for (let i = 1; i < screenCorners.length; i++) {
+      ctx.lineTo(screenCorners[i].x, screenCorners[i].y);
+    }
+    ctx.closePath();
+
+    // Relleno suave translúcido
+    if (isColliding) {
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.18)';
+    } else if (isSelected) {
+      ctx.fillStyle = 'rgba(99, 102, 241, 0.16)';
+    } else {
+      ctx.fillStyle = z.color ? `${z.color}15` : 'rgba(99, 102, 241, 0.08)';
+    }
+    ctx.fill();
+
+    // Borde de muro arquitectónico exterior
+    const baseColor = z.color || '#6366f1';
+    ctx.strokeStyle = isColliding ? '#ef4444' : (isSelected ? '#a5b4fc' : baseColor);
+    ctx.lineWidth = isSelected ? 3.5 : 2.5;
+    ctx.stroke();
+
+    // Doble trazo interior tipo muro arquitectónico
+    if (this.scale >= 15) {
+      ctx.save();
+      ctx.setLineDash([8, 6]);
+      ctx.strokeStyle = isColliding ? 'rgba(239, 68, 68, 0.5)' : (isSelected ? 'rgba(165, 180, 252, 0.6)' : 'rgba(255, 255, 255, 0.2)');
+      ctx.lineWidth = 1.0;
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+
+    // 3. ARISTA DE OPERADOR (LÍNEA VERDE DE ACCESO/PUERTA) Y ARISTA DE OFFSET
+    const opEdgeIndex = (z.operatorEdge ?? 0) % 4;
+    const offsetEdgeIndex = (z.offsetEdge ?? 2) % 4;
+
+    const opP1 = screenCorners[opEdgeIndex];
+    const opP2 = screenCorners[(opEdgeIndex + 1) % 4];
+
+    const offP1 = screenCorners[offsetEdgeIndex];
+    const offP2 = screenCorners[(offsetEdgeIndex + 1) % 4];
+
+    if (opEdgeIndex === offsetEdgeIndex) {
+      // Arista compartida: verde y cian
+      ctx.beginPath();
+      ctx.strokeStyle = '#00FF00';
+      ctx.lineWidth = 5;
+      ctx.lineCap = 'round';
+      ctx.moveTo(opP1.x, opP1.y);
+      ctx.lineTo(opP2.x, opP2.y);
+      ctx.stroke();
+
+      ctx.save();
+      ctx.setLineDash([8, 6]);
+      ctx.strokeStyle = '#00F0FF';
+      ctx.lineWidth = 5;
+      ctx.moveTo(offP1.x, offP1.y);
+      ctx.lineTo(offP2.x, offP2.y);
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      // 3.1 Arista del Operador (Acceso/Entrada): Verde intenso #00FF00
+      ctx.beginPath();
+      ctx.strokeStyle = '#00FF00';
+      ctx.lineWidth = 5;
+      ctx.lineCap = 'round';
+      ctx.moveTo(opP1.x, opP1.y);
+      ctx.lineTo(opP2.x, opP2.y);
+      ctx.stroke();
+
+      // 3.2 Arista de Offset: Cian #00F0FF si está seleccionada
+      if (isSelected) {
+        ctx.beginPath();
+        ctx.strokeStyle = '#00F0FF';
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.moveTo(offP1.x, offP1.y);
+        ctx.lineTo(offP2.x, offP2.y);
+        ctx.stroke();
+      }
+    }
+
+    // 4. BADGE FLOTANTE DE OFFSET
+    if (isSelected || this.scale >= 20) {
+      const offMidX = (offP1.x + offP2.x) / 2;
+      const offMidY = (offP1.y + offP2.y) / 2;
+      const dx = offP2.x - offP1.x;
+      const dy = offP2.y - offP1.y;
+      const len = Math.hypot(dx, dy);
+
+      if (len > 0) {
+        let nx = -dy / len;
+        let ny = dx / len;
+        const toCentroidX = centroid.x - offMidX;
+        const toCentroidY = centroid.y - offMidY;
+        if (nx * toCentroidX + ny * toCentroidY > 0) {
+          nx = -nx;
+          ny = -ny;
+        }
+
+        const badgeX = offMidX + nx * 14;
+        const badgeY = offMidY + ny * 14;
+
+        ctx.save();
+        const badgeText = `MURO: ${(z.wallOffset ?? 0.80).toFixed(2)}m`;
+        ctx.font = 'bold 9px monospace';
+        const txtWidth = ctx.measureText(badgeText).width;
+
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+        ctx.strokeStyle = '#00F0FF';
+        ctx.lineWidth = 1.2;
+
+        const padX = 5, padY = 3;
+        const boxX = badgeX - txtWidth / 2 - padX;
+        const boxY = badgeY - 7 - padY;
+        const boxW = txtWidth + padX * 2;
+        const boxH = 14 + padY;
+
+        if (ctx.roundRect) {
+          ctx.beginPath();
+          ctx.roundRect(boxX, boxY, boxW, boxH, 4);
+          ctx.fill();
+          ctx.stroke();
+        } else {
+          ctx.fillRect(boxX, boxY, boxW, boxH);
+          ctx.strokeRect(boxX, boxY, boxW, boxH);
+        }
+
+        ctx.fillStyle = '#00F0FF';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(badgeText, badgeX, badgeY - 1);
+        ctx.restore();
+      }
+    }
+
+    // 5. TEXTO DEL NOMBRE DE LA ZONA, DIMENSIONES Y SUPERFICIE EN M²
+    this.drawZoneLabels(z, centroid, isColliding);
+  }
+
+  /**
+   * Dibuja los textos y títulos de una Zona con orientación paramétrica
+   */
+  drawZoneLabels(z, centroid, isColliding) {
+    const ctx = this.ctx;
+    const labelRot = ((z.labelRotation || 0) % 360 + 360) % 360;
+    const isPerpendicular = (labelRot % 180 !== 0);
+
+    const screenW = z.width * this.scale;
+    const screenH = z.height * this.scale;
+    const availWidth = (isPerpendicular ? screenH : screenW) * 0.90;
+    const availHeight = (isPerpendicular ? screenW : screenH) * 0.90;
+
+    if (availWidth < 20 || availHeight < 15) return;
+
+    ctx.save();
+    ctx.translate(centroid.x, centroid.y);
+    ctx.rotate(-((z.rotation + labelRot) * Math.PI) / 180);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const areaM2 = (z.width * z.height).toFixed(2);
+    const dimsText = `${z.width.toFixed(2)} x ${z.height.toFixed(2)} m · ${areaM2} m²`;
+
+    const titleSize = Math.min(22, Math.max(11, Math.floor(this.scale * 0.55)));
+    const subSize = Math.max(9, Math.floor(titleSize * 0.72));
+
+    // Cartela técnica semitransparente para legibilidad
+    const titleText = (z.name || 'ZONA').toUpperCase();
+    ctx.font = `bold ${titleSize}px sans-serif`;
+    const titleWidth = ctx.measureText(titleText).width;
+    ctx.font = `${subSize}px monospace`;
+    const subWidth = ctx.measureText(dimsText).width;
+    const bannerW = Math.max(titleWidth, subWidth) + 16;
+    const bannerH = titleSize + subSize + 12;
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+    ctx.strokeStyle = isColliding ? '#ef4444' : (z.color || '#6366f1');
+    ctx.lineWidth = 1;
+
+    if (ctx.roundRect) {
+      ctx.beginPath();
+      ctx.roundRect(-bannerW / 2, -bannerH / 2, bannerW, bannerH, 4);
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      ctx.fillRect(-bannerW / 2, -bannerH / 2, bannerW, bannerH);
+      ctx.strokeRect(-bannerW / 2, -bannerH / 2, bannerW, bannerH);
+    }
+
+    // Nombre de la zona
+    ctx.fillStyle = isColliding ? '#fca5a5' : '#ffffff';
+    ctx.font = `bold ${titleSize}px sans-serif`;
+    ctx.fillText(titleText, 0, -subSize * 0.55);
+
+    // Dimensiones y área en m²
+    ctx.fillStyle = isColliding ? '#f87171' : '#a5b4fc';
+    ctx.font = `bold ${subSize}px monospace`;
+    ctx.fillText(dimsText, 0, titleSize * 0.55);
+
+    ctx.restore();
   }
 
   /**
@@ -1125,19 +1423,31 @@ export class CanvasEngine {
   }
 
   /**
-   * Detecta si se hizo clic sobre una máquina colocada
+   * Detecta si se hizo clic sobre una entidad colocada.
+   * Prioridad de Clic (Hit-Test):
+   * 1. Primero evalúa máquinas y mobiliario sólido (hijos/objetos de primer plano).
+   * 2. Si no se clicó ningún objeto sólido, evalúa si se tocó una zona/recinto de fondo.
    */
   hitTestMachine(screenX, screenY) {
     const worldPt = this.screenToWorld(screenX, screenY);
     const placed = this.machines.filter(m => m.isPlaced);
 
-    // Probamos de arriba a abajo (última renderizada primero)
+    // 1. Probar primero objetos sólidos (mesas, sillas, gabinetes, máquinas)
     for (let i = placed.length - 1; i >= 0; i--) {
       const m = placed[i];
-      if (this.isPointInsideMachine(worldPt.x, worldPt.y, m)) {
+      if (!m.isZone && this.isPointInsideMachine(worldPt.x, worldPt.y, m)) {
         return m;
       }
     }
+
+    // 2. Probar zonas / recintos contenedores
+    for (let i = placed.length - 1; i >= 0; i--) {
+      const m = placed[i];
+      if (m.isZone && this.isPointInsideMachine(worldPt.x, worldPt.y, m)) {
+        return m;
+      }
+    }
+
     return null;
   }
 

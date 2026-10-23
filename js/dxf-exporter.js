@@ -51,10 +51,12 @@ export function generateDXF(machines = [], constructionLines = []) {
   dxf += '2\nTABLES\n';
   dxf += '0\nTABLE\n';
   dxf += '2\nLAYER\n';
-  dxf += '70\n6\n';
+  dxf += '70\n7\n';
 
   // Layer MUROS: Color 7 (Blanco/Negro)
   dxf += '0\nLAYER\n2\nMUROS\n70\n0\n62\n7\n6\nCONTINUOUS\n';
+  // Layer ZONAS_RECINTOS: Color 6 (Magenta)
+  dxf += '0\nLAYER\n2\nZONAS_RECINTOS\n70\n0\n62\n6\n6\nCONTINUOUS\n';
   // Layer MAQUINAS_CUERPO: Color 4 (Cyan)
   dxf += '0\nLAYER\n2\nMAQUINAS_CUERPO\n70\n0\n62\n4\n6\nCONTINUOUS\n';
   // Layer MAQUINAS_OPERADOR: Color 3 (Verde)
@@ -88,19 +90,20 @@ export function generateDXF(machines = [], constructionLines = []) {
   }
   dxf += '0\nSEQEND\n';
 
-  // 2. Máquinas colocadas
+  // 2. Máquinas y Zonas colocadas
   for (const m of placedMachines) {
     const corners = getMachineCorners(m);
+    const bodyLayer = m.isZone ? 'ZONAS_RECINTOS' : 'MAQUINAS_CUERPO';
 
-    // 2.1 Cuerpo de la máquina (Layer MAQUINAS_CUERPO) - Polilínea cerrada 4 vértices
+    // 2.1 Contorno perimetral (Layer MAQUINAS_CUERPO o ZONAS_RECINTOS)
     dxf += '0\nPOLYLINE\n';
-    dxf += '8\nMAQUINAS_CUERPO\n';
+    dxf += `8\n${bodyLayer}\n`;
     dxf += '66\n1\n';
     dxf += '70\n1\n'; // Cerrada
 
     for (const c of corners) {
       dxf += '0\nVERTEX\n';
-      dxf += '8\nMAQUINAS_CUERPO\n';
+      dxf += `8\n${bodyLayer}\n`;
       dxf += `10\n${c.x.toFixed(4)}\n`;
       dxf += `20\n${c.y.toFixed(4)}\n`;
       dxf += '30\n0.0\n';

@@ -120,6 +120,8 @@
             <div class="insp-title-box">
               <h3 id="insp-name">Nombre Máquina</h3>
               <span id="insp-dims">0.00 x 0.00 m</span>
+              <div id="insp-zone-tag" class="badge-offset-indicator" style="display:none; margin-top: 5px;"></div>
+              <button type="button" class="btn btn-sm" id="btn-detach-zone" style="display:none; margin-top: 4px; font-size: 10px; padding: 2px 8px; background: rgba(239, 68, 68, 0.15); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 4px; cursor: pointer;">⎋ Desvincular de Zona</button>
             </div>
             <button class="btn-close-insp" id="btn-insp-close" title="Cerrar inspector">✕</button>
           </div>
@@ -303,6 +305,14 @@
         </div>
         <form id="form-create-object" class="modal-body">
           <div class="form-group">
+            <label for="new-obj-nature">Naturaleza del Elemento</label>
+            <select id="new-obj-nature">
+              <option value="solid" selected>📦 Objeto / Máquina / Mobiliario (Sólido)</option>
+              <option value="zone">⛶ Zona / Recinto / Cuarto (Contenedor de objetos)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
             <label for="new-obj-type">Modo de Colocación</label>
             <select id="new-obj-type">
               <option value="template" selected>Plantilla Reutilizable (Permite colocar múltiples mesas/copias en distintas zonas)</option>
@@ -318,6 +328,7 @@
           <div class="form-group">
             <label for="new-obj-category">Categoría</label>
             <select id="new-obj-category">
+              <option value="Zonas y Recintos">⛶ Zonas y Recintos</option>
               <option value="Mecanizado CNC">Mecanizado CNC</option>
               <option value="Torneado">Torneado</option>
               <option value="Electroerosión">Electroerosión</option>

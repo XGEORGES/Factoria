@@ -474,3 +474,101 @@ export function findClosestWall(px, py) {
   }
   return closest;
 }
+
+/**
+ * Comprueba si un punto World (wx, wy) en metros cae dentro del rectángulo orientado de una entidad
+ */
+export function isPointInsideMachine(wx, wy, machine) {
+  if (!machine) return false;
+  const rot = typeof machine.rotation === 'number' && !isNaN(machine.rotation) ? machine.rotation : 0;
+  const rad = (-rot * Math.PI) / 180;
+  const dx = wx - machine.x;
+  const dy = wy - machine.y;
+
+  const localX = dx * Math.cos(rad) - dy * Math.sin(rad);
+  const localY = dx * Math.sin(rad) + dy * Math.cos(rad);
+
+  const hw = (machine.width || 0) / 2;
+  const hh = (machine.height || 0) / 2;
+
+  return Math.abs(localX) <= hw && Math.abs(localY) <= hh;
+}
+
+/**
+ * Comprueba si los 4 vértices de una máquina o mueble están completamente dentro del contorno de una zona
+ * Incluye tolerancia milimétrica (0.01 m) para evitar errores numéricos por punto flotante
+ */
+export function isMachineInsideZone(machine, zone, tolerance = 0.01) {
+  if (!machine || !zone) return false;
+  const corners = getMachineCorners(machine);
+  
+  const rot = typeof zone.rotation === 'number' && !isNaN(zone.rotation) ? zone.rotation : 0;
+  const rad = (-rot * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const hw = (zone.width / 2) + tolerance;
+  const hh = (zone.height / 2) + tolerance;
+
+  for (const c of corners) {
+    const dx = c.x - zone.x;
+    const dy = c.y - zone.y;
+    const localX = dx * cos - dy * sin;
+    const localY = dx * sin + dy * cos;
+    if (Math.abs(localX) > hw || Math.abs(localY) > hh) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Obtiene los 4 segmentos de pared interior de una zona (Frontal, Derecho, Trasero, Izquierdo)
+ * Las normales apuntan hacia el centroide de la zona (hacia el interior del cuarto).
+ */
+export function getZoneInnerWallSegments(zone) {
+  if (!zone) return [];
+  const corners = getMachineCorners(zone);
+  const segments = [];
+  const edgeNames = ['Pared Frontal', 'Pared Derecha', 'Pared Trasera', 'Pared Izquierda'];
+
+  for (let i = 0; i < 4; i++) {
+    const p1 = corners[i];
+    const p2 = corners[(i + 1) % 4];
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const length = Math.hypot(dx, dy);
+    if (length < 0.001) continue;
+
+    let nx = -dy / length;
+    let ny = dx / length;
+
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    const toCentroidX = zone.x - midX;
+    const toCentroidY = zone.y - midY;
+
+    // Queremos que la normal interior apunte hacia adentro de la zona (hacia su centroide)
+    if (nx * toCentroidX + ny * toCentroidY < 0) {
+      nx = -nx;
+      ny = -ny;
+    }
+
+    const angleRad = Math.atan2(dy, dx);
+    const angleDeg = (angleRad * 180 / Math.PI + 360) % 360;
+
+    segments.push({
+      index: i,
+      start: p1,
+      end: p2,
+      dx,
+      dy,
+      length,
+      angleRad,
+      angleDeg,
+      normal: { x: nx, y: ny },
+      name: `${zone.name || 'Zona'} - ${edgeNames[i]}`
+    });
+  }
+  return segments;
+}
+

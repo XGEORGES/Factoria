@@ -10,7 +10,7 @@ import { CanvasEngine } from './canvas-engine.js';
 import { evaluateWallSnap } from './wall-snap.js';
 import { downloadDXF } from './dxf-exporter.js';
 import { exportLayoutJSON, importLayoutFromFile, saveToLocalStorage, loadFromLocalStorage } from './storage.js';
-import { getWorkshopBounds, findClosestWall, evaluateInterMachineSnap } from './geometry.js';
+import { getWorkshopBounds, findClosestWall, evaluateInterMachineSnap, isPointInsideMachine, isMachineInsideZone, getZoneInnerWallSegments } from './geometry.js';
 
 class LayoutPlannerApp {
   constructor() {
@@ -29,6 +29,8 @@ class LayoutPlannerApp {
     this.dragMode = 'none'; // 'pan' | 'drag-machine' | 'rotate-gizmo'
     this.dragStart = { x: 0, y: 0 };
     this.machineStartPos = { x: 0, y: 0, rotation: 0 };
+    this.machineStartAngle = 0;
+    this.childrenStartPos = [];
     this.isSpacePressed = false;
     this.isCtrlPressed = false;
     this.isShiftPressed = false;
@@ -87,6 +89,8 @@ class LayoutPlannerApp {
     this.btnInspDuplicate = document.getElementById('btn-insp-duplicate');
     this.btnInspRemove = document.getElementById('btn-insp-remove');
     this.btnInspClose = document.getElementById('btn-insp-close');
+    this.inspZoneTag = document.getElementById('insp-zone-tag');
+    this.btnDetachZone = document.getElementById('btn-detach-zone');
 
     // Elementos de Offset / Clearance entre Máquinas
     this.inspClearanceInputs = [0, 1, 2, 3].map(i => document.getElementById(`insp-clearance-${i}`));
@@ -152,6 +156,7 @@ class LayoutPlannerApp {
       ? `${catItem.name} #${instanceNum}`
       : catItem.name;
 
+    const isZone = Boolean(catItem.isZone);
     const newInst = {
       id: `inst_${catItem.id}_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       catalogId: catItem.id,
@@ -165,16 +170,37 @@ class LayoutPlannerApp {
       operatorEdge: catItem.operatorEdge ?? 0,
       offsetEdge: catItem.offsetEdge ?? 2,
       wallOffset: catItem.wallOffset ?? 0.80,
-      clearanceOffsets: [0.00, 0.00, 0.00, 0.00],
+      clearanceOffsets: Array.isArray(catItem.clearanceOffsets) ? [...catItem.clearanceOffsets] : [0.00, 0.00, 0.00, 0.00],
       isPlaced: true,
-      category: catItem.category || 'Mecanizado',
-      color: catItem.color || '#0284c7',
-      isCustom: Boolean(catItem.isCustom)
+      category: catItem.category || (isZone ? 'Zonas y Recintos' : 'Mecanizado'),
+      color: catItem.color || (isZone ? '#6366f1' : '#0284c7'),
+      isCustom: Boolean(catItem.isCustom),
+      isZone: isZone,
+      parentId: null
     };
+
+    // Si es un objeto sólido, comprobar si cae dentro de una zona para asignación automática
+    let parentZone = null;
+    if (!isZone) {
+      parentZone = this.machines.find(m => m.isZone && m.isPlaced && isPointInsideMachine(wx, wy, m));
+      if (parentZone) {
+        newInst.parentId = parentZone.id;
+      }
+    }
 
     // Evaluamos si cae cerca a un muro o máquina para snap
     const disableSnap = this.isCtrlPressed || this.isShiftPressed;
-    const wallSnapRes = evaluateWallSnap(newInst, { disableSnap });
+    let wallSnapRes = { snapped: false };
+
+    if (parentZone) {
+      // Snap magnético a las paredes interiores de la zona padre
+      const innerWalls = getZoneInnerWallSegments(parentZone);
+      wallSnapRes = evaluateWallSnap(newInst, { disableSnap, customWalls: innerWalls });
+    } else {
+      // Snap a los muros exteriores del taller
+      wallSnapRes = evaluateWallSnap(newInst, { disableSnap });
+    }
+
     const machineSnapRes = evaluateInterMachineSnap(newInst, this.machines, { disableSnap });
 
     if (wallSnapRes.snapped) {
@@ -192,7 +218,11 @@ class LayoutPlannerApp {
     this.engine.requestRender();
     this.updateAllUI();
     this.saveState();
-    this.showToast(`"${name}" colocada en (${newInst.x.toFixed(2)}, ${newInst.y.toFixed(2)}) m.`);
+    if (parentZone) {
+      this.showToast(`"${name}" colocado dentro de "${parentZone.name}".`);
+    } else {
+      this.showToast(`"${name}" colocada en (${newInst.x.toFixed(2)}, ${newInst.y.toFixed(2)}) m.`);
+    }
   }
 
   /**
@@ -248,7 +278,9 @@ class LayoutPlannerApp {
       wallOffset: selected.wallOffset,
       clearanceOffsets: Array.isArray(selected.clearanceOffsets) ? [...selected.clearanceOffsets] : [0.00, 0.00, 0.00, 0.00],
       isPlaced: true,
-      isCustom: true
+      isCustom: true,
+      isZone: Boolean(selected.isZone),
+      parentId: selected.parentId || null
     };
 
     // Evaluamos si el duplicado se pega a algún muro o máquina
@@ -337,6 +369,14 @@ class LayoutPlannerApp {
           this.dragMode = 'rotate-gizmo';
           const selected = this.getSelectedMachine();
           this.machineStartPos = { ...selected };
+          this.machineStartAngle = selected ? (selected.rotation || 0) : 0;
+          if (selected && selected.isZone) {
+            this.childrenStartPos = this.machines
+              .filter(m => m.parentId === selected.id && m.isPlaced)
+              .map(child => ({ id: child.id, x: child.x, y: child.y, rotation: child.rotation || 0 }));
+          } else {
+            this.childrenStartPos = [];
+          }
           return;
         }
 
@@ -372,6 +412,13 @@ class LayoutPlannerApp {
             y: hitMachine.y,
             rotation: hitMachine.rotation
           };
+          if (hitMachine.isZone) {
+            this.childrenStartPos = this.machines
+              .filter(m => m.parentId === hitMachine.id && m.isPlaced)
+              .map(child => ({ id: child.id, x: child.x, y: child.y, rotation: child.rotation || 0 }));
+          } else {
+            this.childrenStartPos = [];
+          }
           canvas.style.cursor = 'move';
           return;
         }
@@ -488,13 +535,31 @@ class LayoutPlannerApp {
         let finalAngle = (angleDeg - 90 + 360) % 360;
         selected.rotation = Number(finalAngle.toFixed(1));
 
+        // Si es una zona, rotar en bloque a todos sus hijos alrededor del centroide
+        if (selected.isZone && this.childrenStartPos && this.childrenStartPos.length > 0) {
+          const deltaAngle = (selected.rotation - this.machineStartAngle + 360) % 360;
+          const deltaRad = (deltaAngle * Math.PI) / 180;
+          const cos = Math.cos(deltaRad);
+          const sin = Math.sin(deltaRad);
+
+          for (const c of this.childrenStartPos) {
+            const child = this.machines.find(m => m.id === c.id);
+            if (!child) continue;
+            const relX = c.x - selected.x;
+            const relY = c.y - selected.y;
+            child.x = Number((selected.x + (relX * cos - relY * sin)).toFixed(2));
+            child.y = Number((selected.y + (relX * sin + relY * cos)).toFixed(2));
+            child.rotation = Number(((c.rotation + deltaAngle) % 360 + 360) % 360).toFixed(1);
+          }
+        }
+
         this.engine.updateCollisions();
         this.engine.requestRender();
         this.updateInspector();
         return;
       }
 
-      // 3. Arrastre de Máquina (Sección 5.3 y 6.2)
+      // 3. Arrastre de Máquina o Zona (Sección 5.3 y 6.2)
       if (this.dragMode === 'drag-machine') {
         const dxMeters = dxPx / this.engine.scale;
         const dyMeters = -dyPx / this.engine.scale; // Y invertido en pantalla
@@ -510,22 +575,76 @@ class LayoutPlannerApp {
         };
 
         const disableSnap = this.isCtrlPressed || this.isShiftPressed;
-        const wallSnapRes = evaluateWallSnap(tempMachine, { disableSnap });
-        const machineSnapRes = evaluateInterMachineSnap(tempMachine, this.machines, { disableSnap });
 
-        if (wallSnapRes.snapped) {
-          selected.x = wallSnapRes.snappedMachine.x;
-          selected.y = wallSnapRes.snappedMachine.y;
-          selected.rotation = wallSnapRes.snappedMachine.rotation;
-          this.engine.setSnapGuide(wallSnapRes.snapGuide);
-        } else if (machineSnapRes.snapped) {
-          selected.x = machineSnapRes.snappedMachine.x;
-          selected.y = machineSnapRes.snappedMachine.y;
-          this.engine.setSnapGuide(machineSnapRes.snapGuide);
+        if (selected.isZone) {
+          // Snap de la zona contra los muros perimetrales del taller y entre máquinas externas
+          const wallSnapRes = evaluateWallSnap(tempMachine, { disableSnap });
+          const machineSnapRes = evaluateInterMachineSnap(tempMachine, this.machines, { disableSnap });
+
+          if (wallSnapRes.snapped) {
+            selected.x = wallSnapRes.snappedMachine.x;
+            selected.y = wallSnapRes.snappedMachine.y;
+            selected.rotation = wallSnapRes.snappedMachine.rotation;
+            this.engine.setSnapGuide(wallSnapRes.snapGuide);
+          } else if (machineSnapRes.snapped) {
+            selected.x = machineSnapRes.snappedMachine.x;
+            selected.y = machineSnapRes.snappedMachine.y;
+            this.engine.setSnapGuide(machineSnapRes.snapGuide);
+          } else {
+            selected.x = Number(targetX.toFixed(2));
+            selected.y = Number(targetY.toFixed(2));
+            this.engine.setSnapGuide(null);
+          }
+
+          // Desplazar en bloque a todos sus hijos en sincronía exacta (Parent-Child)
+          const deltaX = selected.x - this.machineStartPos.x;
+          const deltaY = selected.y - this.machineStartPos.y;
+          if (this.childrenStartPos && this.childrenStartPos.length > 0) {
+            for (const c of this.childrenStartPos) {
+              const child = this.machines.find(m => m.id === c.id);
+              if (child) {
+                child.x = Number((c.x + deltaX).toFixed(2));
+                child.y = Number((c.y + deltaY).toFixed(2));
+              }
+            }
+          }
         } else {
-          selected.x = Number(targetX.toFixed(2));
-          selected.y = Number(targetY.toFixed(2));
-          this.engine.setSnapGuide(null);
+          // Es un objeto normal o hijo:
+          // Evaluar si pertenece a una zona o está sobre una zona
+          let parentZone = null;
+          if (selected.parentId) {
+            parentZone = this.machines.find(m => m.id === selected.parentId && m.isPlaced);
+          }
+          if (!parentZone) {
+            parentZone = this.machines.find(m => m.isZone && m.isPlaced && isPointInsideMachine(targetX, targetY, m));
+          }
+
+          let wallSnapRes = { snapped: false };
+          if (parentZone) {
+            // Snap magnético contra las paredes interiores de la zona padre
+            const innerWalls = getZoneInnerWallSegments(parentZone);
+            wallSnapRes = evaluateWallSnap(tempMachine, { disableSnap, customWalls: innerWalls });
+          } else {
+            // Snap a los muros exteriores del taller
+            wallSnapRes = evaluateWallSnap(tempMachine, { disableSnap });
+          }
+
+          const machineSnapRes = evaluateInterMachineSnap(tempMachine, this.machines, { disableSnap });
+
+          if (wallSnapRes.snapped) {
+            selected.x = wallSnapRes.snappedMachine.x;
+            selected.y = wallSnapRes.snappedMachine.y;
+            selected.rotation = wallSnapRes.snappedMachine.rotation;
+            this.engine.setSnapGuide(wallSnapRes.snapGuide);
+          } else if (machineSnapRes.snapped) {
+            selected.x = machineSnapRes.snappedMachine.x;
+            selected.y = machineSnapRes.snappedMachine.y;
+            this.engine.setSnapGuide(machineSnapRes.snapGuide);
+          } else {
+            selected.x = Number(targetX.toFixed(2));
+            selected.y = Number(targetY.toFixed(2));
+            this.engine.setSnapGuide(null);
+          }
         }
 
         this.engine.updateCollisions();
@@ -536,9 +655,28 @@ class LayoutPlannerApp {
 
     const endPointerDrag = () => {
       if (this.dragMode !== 'none') {
+        const selected = this.getSelectedMachine();
+        if (selected && !selected.isZone) {
+          // Evaluar si al soltar quedó dentro o fuera de una zona
+          const targetZone = this.machines.find(m => m.isZone && m.isPlaced && isPointInsideMachine(selected.x, selected.y, m));
+          if (targetZone) {
+            if (selected.parentId !== targetZone.id) {
+              selected.parentId = targetZone.id;
+              this.showToast(`"${selected.name}" asignado a "${targetZone.name}".`);
+            }
+          } else if (selected.parentId) {
+            selected.parentId = null;
+            this.showToast(`"${selected.name}" liberado al taller principal.`);
+          }
+        }
+
         this.dragMode = 'none';
+        this.childrenStartPos = [];
         this.engine.setSnapGuide(null);
         canvas.style.cursor = 'default';
+        this.engine.updateCollisions();
+        this.engine.requestRender();
+        this.updateInspector();
         this.saveState();
       }
     };
@@ -623,7 +761,7 @@ class LayoutPlannerApp {
       // Tecla [R]: Rotación incremental rápida a 90° de la máquina
       if (e.key === 'r' || e.key === 'R') {
         e.preventDefault();
-        selected.rotation = (selected.rotation + 90) % 360;
+        this.setMachineRotation(selected, selected.rotation + 90);
         this.engine.updateCollisions();
         this.engine.requestRender();
         this.updateInspector();
@@ -643,7 +781,7 @@ class LayoutPlannerApp {
       // Teclas [Q] / [E]: Micro-rotación de ajuste a ±5°
       if (e.key === 'q' || e.key === 'Q') {
         e.preventDefault();
-        selected.rotation = (selected.rotation - 5 + 360) % 360;
+        this.setMachineRotation(selected, selected.rotation - 5);
         this.engine.updateCollisions();
         this.engine.requestRender();
         this.updateInspector();
@@ -653,7 +791,7 @@ class LayoutPlannerApp {
 
       if (e.key === 'e' || e.key === 'E') {
         e.preventDefault();
-        selected.rotation = (selected.rotation + 5) % 360;
+        this.setMachineRotation(selected, selected.rotation + 5);
         this.engine.updateCollisions();
         this.engine.requestRender();
         this.updateInspector();
@@ -867,8 +1005,8 @@ class LayoutPlannerApp {
     this.inspRot?.addEventListener('input', (e) => {
       const selected = this.getSelectedMachine();
       if (selected) {
-        const val = (parseFloat(e.target.value) || 0) % 360;
-        selected.rotation = (val + 360) % 360;
+        const val = parseFloat(e.target.value) || 0;
+        this.setMachineRotation(selected, val);
         if (this.inspRotSlider) this.inspRotSlider.value = selected.rotation;
         this.engine.updateCollisions();
         this.engine.requestRender();
@@ -879,7 +1017,8 @@ class LayoutPlannerApp {
     this.inspRotSlider?.addEventListener('input', (e) => {
       const selected = this.getSelectedMachine();
       if (selected) {
-        selected.rotation = parseFloat(e.target.value) || 0;
+        const val = parseFloat(e.target.value) || 0;
+        this.setMachineRotation(selected, val);
         if (this.inspRot) this.inspRot.value = selected.rotation;
         this.engine.updateCollisions();
         this.engine.requestRender();
@@ -893,7 +1032,7 @@ class LayoutPlannerApp {
         const selected = this.getSelectedMachine();
         if (selected) {
           const inc = parseFloat(btn.dataset.rotInc) || 0;
-          selected.rotation = (selected.rotation + inc + 360) % 360;
+          this.setMachineRotation(selected, selected.rotation + inc);
           this.engine.updateCollisions();
           this.engine.requestRender();
           this.updateInspector();
@@ -1043,6 +1182,19 @@ class LayoutPlannerApp {
       this.duplicateSelectedMachine();
     });
 
+    // Botón Desvincular de Zona
+    this.btnDetachZone?.addEventListener('click', () => {
+      const selected = this.getSelectedMachine();
+      if (selected && selected.parentId) {
+        selected.parentId = null;
+        this.engine.updateCollisions();
+        this.engine.requestRender();
+        this.updateInspector();
+        this.saveState();
+        this.showToast(`"${selected.name}" desvinculado de su zona.`);
+      }
+    });
+
     // Botón Retirar del taller (Regresar al sidebar)
     this.btnInspRemove?.addEventListener('click', () => {
       const selected = this.getSelectedMachine();
@@ -1050,6 +1202,34 @@ class LayoutPlannerApp {
         this.removeMachineFromCanvas(selected.id);
       }
     });
+  }
+
+  /**
+   * Establece la rotación de una entidad (máquina o zona).
+   * Si es una zona, rota a todos sus hijos en bloque alrededor del centroide.
+   */
+  setMachineRotation(machine, newRotation) {
+    if (!machine) return;
+    const oldRotation = machine.rotation || 0;
+    const targetRotation = ((newRotation % 360) + 360) % 360;
+    const deltaAngle = (targetRotation - oldRotation + 360) % 360;
+    const signedDelta = deltaAngle > 180 ? deltaAngle - 360 : deltaAngle;
+    machine.rotation = Number(targetRotation.toFixed(1));
+
+    if (machine.isZone && Math.abs(signedDelta) > 0.001) {
+      const deltaRad = (signedDelta * Math.PI) / 180;
+      const cos = Math.cos(deltaRad);
+      const sin = Math.sin(deltaRad);
+      const children = this.machines.filter(m => m.parentId === machine.id && m.isPlaced);
+
+      for (const child of children) {
+        const relX = child.x - machine.x;
+        const relY = child.y - machine.y;
+        child.x = Number((machine.x + (relX * cos - relY * sin)).toFixed(2));
+        child.y = Number((machine.y + (relX * sin + relY * cos)).toFixed(2));
+        child.rotation = Number((((child.rotation || 0) + signedDelta) % 360 + 360) % 360).toFixed(1);
+      }
+    }
   }
 
   setMachineLabelRotation(deg) {
@@ -1096,6 +1276,12 @@ class LayoutPlannerApp {
   removeMachineFromCanvas(id) {
     const machine = this.machines.find(m => m.id === id);
     if (!machine) return;
+
+    // Si la entidad es una zona contenedora, liberar a todos sus hijos al taller principal
+    if (machine.isZone) {
+      const children = this.machines.filter(m => m.parentId === machine.id);
+      children.forEach(c => { c.parentId = null; });
+    }
 
     this.machines = this.machines.filter(m => m.id !== id);
     this.showToast(`"${machine.name}" retirada del taller.`);
@@ -1160,23 +1346,28 @@ class LayoutPlannerApp {
       const targetQty = Math.max(1, item.quantity || 1);
       const isDone = placedCount >= targetQty;
 
+      const isZone = Boolean(item.isZone);
       const card = document.createElement('div');
-      card.className = `machine-card ${isDone ? 'card-complete' : ''}`;
+      card.className = `machine-card ${isDone ? 'card-complete' : ''} ${isZone ? 'card-zone' : ''}`;
       card.draggable = true;
       card.dataset.catalogId = item.id;
 
+      const badgeColor = item.color || (isZone ? '#6366f1' : 'var(--accent-cyan)');
+      const badgeBg = isZone ? 'rgba(99, 102, 241, 0.2)' : (item.color ? item.color + '22' : 'rgba(2,132,199,0.15)');
+      const categoryLabel = isZone ? `⛶ ${item.category || 'Zona / Recinto'}` : (item.category || 'Activo');
+
       card.innerHTML = `
         <div class="machine-card-header">
-          <span class="machine-badge" style="background-color: ${item.color ? item.color + '22' : 'rgba(2,132,199,0.15)'}; color: ${item.color || 'var(--accent-cyan)'};">${item.category || 'Activo'}</span>
+          <span class="machine-badge" style="background-color: ${badgeBg}; color: ${badgeColor};">${categoryLabel}</span>
           <span class="machine-dims">${item.width.toFixed(2)} x ${item.height.toFixed(2)} m</span>
         </div>
         <div class="machine-card-body">
-          <div class="machine-thumb" style="border-color: ${item.color || '#38bdf8'}">
-            <span class="thumb-ratio">${item.width.toFixed(1)}x${item.height.toFixed(1)}</span>
+          <div class="machine-thumb" style="border-color: ${item.color || (isZone ? '#818cf8' : '#38bdf8')}; ${isZone ? 'border-style: dashed;' : ''}">
+            <span class="thumb-ratio">${isZone ? '⛶ ' : ''}${item.width.toFixed(1)}x${item.height.toFixed(1)}</span>
           </div>
           <div class="machine-info">
             <h4 class="machine-title">${item.name}</h4>
-            <span class="drag-hint">⇄ Arrastra al taller</span>
+            <span class="drag-hint">⇄ ${isZone ? 'Arrastra zona al taller' : 'Arrastra al taller'}</span>
           </div>
         </div>
         
@@ -1336,7 +1527,36 @@ class LayoutPlannerApp {
     this.inspectorPanel.classList.remove('hidden');
 
     if (this.inspName) this.inspName.textContent = selected.name;
-    if (this.inspDims) this.inspDims.textContent = `${selected.width.toFixed(2)} m (X) x ${selected.height.toFixed(2)} m (Y)`;
+    if (this.inspDims) {
+      if (selected.isZone) {
+        const area = (selected.width * selected.height).toFixed(2);
+        this.inspDims.textContent = `${selected.width.toFixed(2)} m (X) x ${selected.height.toFixed(2)} m (Y) · ${area} m²`;
+      } else {
+        this.inspDims.textContent = `${selected.width.toFixed(2)} m (X) x ${selected.height.toFixed(2)} m (Y)`;
+      }
+    }
+
+    if (this.inspZoneTag) {
+      if (selected.isZone) {
+        const childrenCount = this.machines.filter(m => m.parentId === selected.id && m.isPlaced).length;
+        const area = (selected.width * selected.height).toFixed(2);
+        this.inspZoneTag.style.display = 'inline-block';
+        this.inspZoneTag.style.background = 'rgba(99, 102, 241, 0.2)';
+        this.inspZoneTag.style.color = '#a5b4fc';
+        this.inspZoneTag.textContent = `⛶ RECINTO (${area} m² · ${childrenCount} objetos)`;
+        if (this.btnDetachZone) this.btnDetachZone.style.display = 'none';
+      } else if (selected.parentId) {
+        const parentZone = this.machines.find(m => m.id === selected.parentId);
+        this.inspZoneTag.style.display = 'inline-block';
+        this.inspZoneTag.style.background = 'rgba(16, 185, 129, 0.2)';
+        this.inspZoneTag.style.color = '#6ee7b7';
+        this.inspZoneTag.textContent = `📍 Ubicado en: ${parentZone ? parentZone.name : 'Zona'}`;
+        if (this.btnDetachZone) this.btnDetachZone.style.display = 'inline-block';
+      } else {
+        this.inspZoneTag.style.display = 'none';
+        if (this.btnDetachZone) this.btnDetachZone.style.display = 'none';
+      }
+    }
     if (this.inspX) this.inspX.value = selected.x.toFixed(2);
     if (this.inspY) this.inspY.value = selected.y.toFixed(2);
     if (this.inspRot) this.inspRot.value = Math.round(selected.rotation);
@@ -1437,6 +1657,29 @@ class LayoutPlannerApp {
       form?.reset();
     };
 
+    const natureSelect = document.getElementById('new-obj-nature');
+    const nameInput = document.getElementById('new-obj-name');
+    const catSelect = document.getElementById('new-obj-category');
+    const widthInput = document.getElementById('new-obj-width');
+    const heightInput = document.getElementById('new-obj-height');
+    const colorInput = document.getElementById('new-obj-color');
+
+    natureSelect?.addEventListener('change', () => {
+      if (natureSelect.value === 'zone') {
+        if (!nameInput.value || nameInput.value === 'Mesa de Trabajo CNC') {
+          nameInput.value = 'Área Metrología';
+        }
+        if (catSelect) catSelect.value = 'Zonas y Recintos';
+        if (widthInput && (!widthInput.value || widthInput.value === '1.80')) widthInput.value = '6.00';
+        if (heightInput && (!heightInput.value || heightInput.value === '2.00')) heightInput.value = '4.00';
+        if (colorInput && colorInput.value === '#0284c7') colorInput.value = '#6366f1';
+      } else {
+        if (nameInput.value === 'Área Metrología') nameInput.value = '';
+        if (catSelect && catSelect.value === 'Zonas y Recintos') catSelect.value = 'Personalizado';
+        if (colorInput && colorInput.value === '#6366f1') colorInput.value = '#0284c7';
+      }
+    });
+
     btnOpen?.addEventListener('click', openModal);
     btnClose?.addEventListener('click', closeModal);
     btnCancel?.addEventListener('click', closeModal);
@@ -1447,14 +1690,16 @@ class LayoutPlannerApp {
 
     form?.addEventListener('submit', (e) => {
       e.preventDefault();
+      const nature = natureSelect?.value || 'solid';
+      const isZone = (nature === 'zone');
       const objType = document.getElementById('new-obj-type')?.value || 'template';
-      const name = document.getElementById('new-obj-name')?.value.trim();
-      const category = document.getElementById('new-obj-category')?.value || 'Personalizado';
-      const width = parseFloat(document.getElementById('new-obj-width')?.value);
-      const height = parseFloat(document.getElementById('new-obj-height')?.value);
+      const name = nameInput?.value.trim();
+      const category = catSelect?.value || (isZone ? 'Zonas y Recintos' : 'Personalizado');
+      const width = parseFloat(widthInput?.value);
+      const height = parseFloat(heightInput?.value);
       const wallOffset = parseFloat(document.getElementById('new-obj-wall-offset')?.value) || 0.80;
       const clearanceVal = parseFloat(document.getElementById('new-obj-clearance')?.value) || 0.00;
-      const color = document.getElementById('new-obj-color')?.value || '#0284c7';
+      const color = colorInput?.value || (isZone ? '#6366f1' : '#0284c7');
 
       if (!name || isNaN(width) || isNaN(height) || width < 0.20 || height < 0.20) {
         alert('Por favor introduce dimensiones válidas (mínimo 0.20 m) y un nombre descriptivo.');
@@ -1475,14 +1720,15 @@ class LayoutPlannerApp {
         wallOffset: Number(wallOffset.toFixed(2)),
         clearanceOffsets: clrOffsets,
         isCustom: true,
-        isUnique
+        isUnique,
+        isZone
       };
 
       this.catalog.push(newCatItem);
       this.updateAllUI();
       this.saveState();
       closeModal();
-      this.showToast(`"${name}" añadido al catálogo con cantidad paramétrica.`);
+      this.showToast(`"${name}" (${isZone ? 'Zona / Recinto' : 'Objeto'}) añadido al catálogo.`);
     });
   }
 

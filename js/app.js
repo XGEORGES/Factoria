@@ -851,6 +851,30 @@ class LayoutPlannerApp {
         this.canvas.style.cursor = 'grab';
       }
 
+      // Si el foco está en un campo de texto o formulario, permitir edición normal
+      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) {
+        return;
+      }
+
+      // Tecla [Supr] / [Delete] / [Backspace]: Retirar objetos, zonas o guías seleccionadas del plano
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (this.selectedMachineIds.size > 0 || this.selectedMachineId) {
+          e.preventDefault();
+          this.removeSelectedMachines();
+          return;
+        }
+        if (this.selectedGuidelineId) {
+          e.preventDefault();
+          this.constructionLines = this.constructionLines.filter(l => l.id !== this.selectedGuidelineId);
+          this.selectedGuidelineId = null;
+          this.engine.setSelectedGuidelineId(null);
+          this.engine.setConstructionLines(this.constructionLines);
+          this.saveState();
+          this.showToast('Línea constructiva eliminada.');
+          return;
+        }
+      }
+
       // Escape: Deseleccionar todo
       if (e.key === 'Escape') {
         if (this.toolMode === 'guideline') {
@@ -1413,7 +1437,16 @@ class LayoutPlannerApp {
 
   removeSelectedMachines() {
     const ids = Array.from(this.selectedMachineIds);
-    if (ids.length === 0) return;
+    if (ids.length === 0) {
+      if (this.selectedMachineId) {
+        this.removeMachineFromCanvas(this.selectedMachineId);
+      }
+      return;
+    }
+    if (ids.length === 1) {
+      this.removeMachineFromCanvas(ids[0]);
+      return;
+    }
 
     for (const id of ids) {
       const machine = this.machines.find(m => m.id === id);

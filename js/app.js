@@ -33,6 +33,9 @@ class LayoutPlannerApp {
     this.machineStartPos = { x: 0, y: 0, rotation: 0 };
     this.machineStartAngle = 0;
     this.childrenStartPos = [];
+    this.groupDragStartPositions = [];
+    this.pendingSingleSelectId = null;
+    this.hasMovedDrag = false;
     this.isSpacePressed = false;
     this.isCtrlPressed = false;
     this.isShiftPressed = false;
@@ -439,8 +442,10 @@ class LayoutPlannerApp {
 
       // 3. Clic Izquierdo (e.button === 0)
       if (e.button === 0) {
-        // 3.1 Verificar si clicó en la manija del Gizmo de Rotación
-        if (this.engine.hitTestGizmoHandle(sx, sy)) {
+        const isMultiKey = e.ctrlKey || e.metaKey || this.isCtrlPressed;
+
+        // 3.1 Verificar si clicó en la manija del Gizmo de Rotación (solo en selección individual y sin tecla Ctrl)
+        if (!isMultiKey && this.selectedMachineIds.size === 1 && this.engine.hitTestGizmoHandle(sx, sy)) {
           this.dragMode = 'rotate-gizmo';
           const selected = this.getSelectedMachine();
           this.machineStartPos = { ...selected };
@@ -455,9 +460,9 @@ class LayoutPlannerApp {
           return;
         }
 
-        // 3.2 Si hay una máquina seleccionada, verificar si clicó sobre una de sus 4 aristas
+        // 3.2 Si hay una sola máquina seleccionada y NO se presiona Ctrl, verificar si clicó sobre una de sus 4 aristas
         const selected = this.getSelectedMachine();
-        if (selected) {
+        if (!isMultiKey && this.selectedMachineIds.size === 1 && selected) {
           const clickedEdge = this.engine.hitTestMachineEdge(sx, sy, selected);
           if (clickedEdge !== null) {
             if (e.shiftKey) {
@@ -479,20 +484,32 @@ class LayoutPlannerApp {
         // 3.3 Verificar si clicó sobre cualquier máquina o zona colocada
         const hitMachine = this.engine.hitTestMachine(sx, sy);
         if (hitMachine) {
-          if (e.ctrlKey || e.metaKey) {
-            // Selección Múltiple con tecla Control
+          this.pendingSingleSelectId = null;
+          this.hasMovedDrag = false;
+
+          if (isMultiKey) {
+            // Selección Múltiple con tecla Control (toggle individual)
             this.selectMachine(hitMachine.id, true);
             this.selectGuideline(null);
-            this.dragMode = 'drag-machine';
-            this.recordGroupDragStart();
-            canvas.style.cursor = 'move';
+            if (this.selectedMachineIds.has(hitMachine.id)) {
+              this.dragMode = 'drag-machine';
+              this.recordGroupDragStart();
+              canvas.style.cursor = 'move';
+            } else {
+              this.dragMode = 'none';
+              this.groupDragStartPositions = [];
+              canvas.style.cursor = 'default';
+            }
             return;
           } else {
             // Clic normal sin Ctrl:
             // Si la entidad ya pertenece a la selección múltiple actual,
             // conservamos el grupo para permitir desplazarlos todos juntos de golpe.
+            // Si el usuario solo hace clic estático (sin arrastrar), en pointerup colapsamos la selección a este único elemento.
             if (!this.selectedMachineIds.has(hitMachine.id)) {
               this.selectMachine(hitMachine.id, false);
+            } else if (this.selectedMachineIds.size > 1) {
+              this.pendingSingleSelectId = hitMachine.id;
             }
             this.selectGuideline(null);
             this.dragMode = 'drag-machine';
@@ -506,7 +523,7 @@ class LayoutPlannerApp {
         const hitGuide = this.engine.hitTestConstructionLine(sx, sy);
         if (hitGuide) {
           this.selectGuideline(hitGuide.id);
-          this.selectMachine(null);
+          this.clearSelection();
           this.showToast('Línea constructiva seleccionada. Presiona [Supr] para borrarla.');
           return;
         } else {
@@ -514,7 +531,7 @@ class LayoutPlannerApp {
         }
 
         // 3.5 Clic en fondo vacío -> deseleccionar e iniciar Pan si no se presiona Ctrl
-        if (!e.ctrlKey && !e.metaKey) {
+        if (!isMultiKey) {
           this.clearSelection();
         }
         this.dragMode = 'pan';
@@ -577,12 +594,13 @@ class LayoutPlannerApp {
 
       // Si no estamos arrastrando, actualizar cursor interactivo
       if (this.dragMode === 'none') {
-        if (this.engine.hitTestGizmoHandle(sx, sy)) {
+        const isMultiKey = e.ctrlKey || e.metaKey || this.isCtrlPressed;
+        if (!isMultiKey && this.selectedMachineIds.size === 1 && this.engine.hitTestGizmoHandle(sx, sy)) {
           canvas.style.cursor = 'crosshair';
-        } else if (this.selectedMachineId && this.engine.hitTestMachineEdge(sx, sy, this.getSelectedMachine()) !== null) {
+        } else if (!isMultiKey && this.selectedMachineIds.size === 1 && this.selectedMachineId && this.engine.hitTestMachineEdge(sx, sy, this.getSelectedMachine()) !== null) {
           canvas.style.cursor = 'pointer';
         } else if (this.engine.hitTestMachine(sx, sy)) {
-          canvas.style.cursor = 'move';
+          canvas.style.cursor = isMultiKey ? 'pointer' : 'move';
         } else if (this.engine.hitTestConstructionLine(sx, sy)) {
           canvas.style.cursor = 'pointer';
         } else if (this.isSpacePressed) {
@@ -648,6 +666,11 @@ class LayoutPlannerApp {
         const dxMeters = dxPx / this.engine.scale;
         const dyMeters = -dyPx / this.engine.scale; // Y invertido en pantalla
 
+        if (Math.hypot(dxPx, dyPx) > 3) {
+          this.hasMovedDrag = true;
+          this.pendingSingleSelectId = null;
+        }
+
         // DESPLAZAMIENTO EN BLOQUE DE MÚLTIPLES OBJETOS Y ZONAS ("desplazar de golpe"):
         if (this.selectedMachineIds.size > 1) {
           const deltaX = Number(dxMeters.toFixed(2));
@@ -667,8 +690,6 @@ class LayoutPlannerApp {
           this.updateInspector();
           return;
         }
-        const dxMeters = dxPx / this.engine.scale;
-        const dyMeters = -dyPx / this.engine.scale; // Y invertido en pantalla
 
         let targetX = this.machineStartPos.x + dxMeters;
         let targetY = this.machineStartPos.y + dyMeters;
@@ -761,24 +782,35 @@ class LayoutPlannerApp {
     });
 
     const endPointerDrag = () => {
+      // Si se hizo un clic simple sin arrastre sobre un elemento que pertenecía a un grupo,
+      // colapsar la selección solo a este elemento
+      if (this.pendingSingleSelectId && !this.hasMovedDrag) {
+        this.selectMachine(this.pendingSingleSelectId, false);
+      }
+      this.pendingSingleSelectId = null;
+      this.hasMovedDrag = false;
+
       if (this.dragMode !== 'none') {
-        const selected = this.getSelectedMachine();
-        if (selected && !selected.isZone) {
-          // Evaluar si al soltar quedó dentro o fuera de una zona
-          const targetZone = this.machines.find(m => m.isZone && m.isPlaced && isPointInsideMachine(selected.x, selected.y, m));
-          if (targetZone) {
-            if (selected.parentId !== targetZone.id) {
-              selected.parentId = targetZone.id;
-              this.showToast(`"${selected.name}" asignado a "${targetZone.name}".`);
+        // Re-evaluar pertenencia a zonas para todas las máquinas arrastradas
+        for (const id of this.selectedMachineIds) {
+          const m = this.machines.find(item => item.id === id && item.isPlaced);
+          if (m && !m.isZone) {
+            const targetZone = this.machines.find(z => z.isZone && z.isPlaced && isPointInsideMachine(m.x, m.y, z));
+            if (targetZone) {
+              if (m.parentId !== targetZone.id) {
+                m.parentId = targetZone.id;
+                this.showToast(`"${m.name}" asignado a "${targetZone.name}".`);
+              }
+            } else if (m.parentId) {
+              m.parentId = null;
+              this.showToast(`"${m.name}" liberado al taller principal.`);
             }
-          } else if (selected.parentId) {
-            selected.parentId = null;
-            this.showToast(`"${selected.name}" liberado al taller principal.`);
           }
         }
 
         this.dragMode = 'none';
         this.childrenStartPos = [];
+        this.groupDragStartPositions = [];
         this.engine.setSnapGuide(null);
         canvas.style.cursor = 'default';
         this.engine.updateCollisions();
@@ -841,6 +873,12 @@ class LayoutPlannerApp {
           this.canvas.style.cursor = 'default';
         }
       }
+    });
+
+    window.addEventListener('blur', () => {
+      this.isCtrlPressed = false;
+      this.isShiftPressed = false;
+      this.isSpacePressed = false;
     });
   }
   // ==========================================================
@@ -1393,6 +1431,25 @@ class LayoutPlannerApp {
   }
 
   removeMachineFromCanvas(id) {
+    const machine = this.machines.find(m => m.id === id);
+    if (!machine) return;
+
+    // Si la entidad es una zona contenedora, liberar a todos sus hijos al taller principal
+    if (machine.isZone) {
+      const children = this.machines.filter(m => m.parentId === machine.id);
+      children.forEach(c => { c.parentId = null; });
+    }
+
+    this.machines = this.machines.filter(m => m.id !== id);
+    this.showToast(`"${machine.name}" retirada del taller.`);
+
+    if (this.selectedMachineId === id) {
+      this.selectMachine(null);
+    }
+    this.updateAllUI();
+    this.saveState();
+  }
+
   /**
    * Registra las posiciones iniciales de todas las entidades seleccionadas y sus hijos
    * para permitir el desplazamiento sincronizado en bloque ("desplazar de golpe").
@@ -1422,27 +1479,14 @@ class LayoutPlannerApp {
     const primary = this.getSelectedMachine();
     if (primary) {
       this.machineStartPos = { x: primary.x, y: primary.y, rotation: primary.rotation };
+      if (primary.isZone) {
+        this.childrenStartPos = this.machines
+          .filter(m => m.parentId === primary.id && m.isPlaced)
+          .map(child => ({ id: child.id, x: child.x, y: child.y, rotation: child.rotation || 0 }));
+      } else {
+        this.childrenStartPos = [];
+      }
     }
-  }
-
-
-    const machine = this.machines.find(m => m.id === id);
-    if (!machine) return;
-
-    // Si la entidad es una zona contenedora, liberar a todos sus hijos al taller principal
-    if (machine.isZone) {
-      const children = this.machines.filter(m => m.parentId === machine.id);
-      children.forEach(c => { c.parentId = null; });
-    }
-
-    this.machines = this.machines.filter(m => m.id !== id);
-    this.showToast(`"${machine.name}" retirada del taller.`);
-
-    if (this.selectedMachineId === id) {
-      this.selectMachine(null);
-    }
-    this.updateAllUI();
-    this.saveState();
   }
 
   // ==========================================================

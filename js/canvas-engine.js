@@ -1452,11 +1452,13 @@ export class CanvasEngine {
   hitTestMachine(screenX, screenY) {
     const worldPt = this.screenToWorld(screenX, screenY);
     const placed = this.machines.filter(m => m.isPlaced);
+    // Margen de tolerancia de 6px de pantalla para facilitar el clic en bordes y muebles delgados
+    const pad = Math.max(0.04, 6 / this.scale);
 
     // 1. Probar primero objetos sólidos (mesas, sillas, gabinetes, máquinas)
     for (let i = placed.length - 1; i >= 0; i--) {
       const m = placed[i];
-      if (!m.isZone && this.isPointInsideMachine(worldPt.x, worldPt.y, m)) {
+      if (!m.isZone && this.isPointInsideMachine(worldPt.x, worldPt.y, m, pad)) {
         return m;
       }
     }
@@ -1464,7 +1466,7 @@ export class CanvasEngine {
     // 2. Probar zonas / recintos contenedores
     for (let i = placed.length - 1; i >= 0; i--) {
       const m = placed[i];
-      if (m.isZone && this.isPointInsideMachine(worldPt.x, worldPt.y, m)) {
+      if (m.isZone && this.isPointInsideMachine(worldPt.x, worldPt.y, m, pad)) {
         return m;
       }
     }
@@ -1475,16 +1477,17 @@ export class CanvasEngine {
   /**
    * Detecta si un punto World (wx, wy) cae dentro del rectángulo orientado de una máquina
    */
-  isPointInsideMachine(wx, wy, machine) {
-    const rad = (-machine.rotation * Math.PI) / 180;
+  isPointInsideMachine(wx, wy, machine, padding = 0) {
+    const rot = typeof machine.rotation === 'number' && !isNaN(machine.rotation) ? machine.rotation : 0;
+    const rad = (-rot * Math.PI) / 180;
     const dx = wx - machine.x;
     const dy = wy - machine.y;
 
     const localX = dx * Math.cos(rad) - dy * Math.sin(rad);
     const localY = dx * Math.sin(rad) + dy * Math.cos(rad);
 
-    const hw = machine.width / 2;
-    const hh = machine.height / 2;
+    const hw = (machine.width || 0) / 2 + padding;
+    const hh = (machine.height || 0) / 2 + padding;
 
     return Math.abs(localX) <= hw && Math.abs(localY) <= hh;
   }

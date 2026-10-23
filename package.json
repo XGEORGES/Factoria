@@ -1,0 +1,22 @@
+{
+  "name": "taller-cnc-2d-layout-planner",
+  "version": "1.0.0",
+  "description": "SPA 2D CAD Layout Planner para distribución en planta de Taller CNC industrial con exportación DXF y persistencia JSON",
+  "main": "serve.mjs",
+  "type": "module",
+  "scripts": {
+    "start": "node serve.mjs"
+  },
+  "keywords": [
+    "cad",
+    "dxf",
+    "autocad",
+    "cnc",
+    "layout",
+    "2d",
+    "canvas",
+    "sat-collision"
+  ],
+  "author": "",
+  "license": "MIT"
+}

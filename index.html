@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Taller CNC 2D Layout Planner (REV FINAL)</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div id="app-container">
+    <!-- 5.1 PANEL SUPERIOR: HEADER DE CONTROL -->
+    <header id="app-header">
+      <div class="header-left">
+        <div class="brand-icon">⚙</div>
+        <div class="brand-title">
+          <h1>Taller CNC 2D Layout Planner</h1>
+          <span id="brand-subtitle">1,103.74 m² | Nave Industrial | 29 Activos</span>
+        </div>
+
+        <!-- Contador Dinámico: "Máquinas ubicadas: X / Total | Faltan: Y" -->
+        <div class="header-counter-box" title="Contador estricto de activos en planta">
+          <span class="counter-badge placed">Ubicadas: <strong id="placed-counter">0</strong> / <strong id="total-target-counter">29</strong></span>
+          <span class="counter-divider">|</span>
+          <span class="counter-badge pending">Faltan: <strong id="unplaced-counter">29</strong></span>
+        </div>
+
+        <!-- Botón Desplegable: "Ver pendientes" -->
+        <div class="dropdown-container" id="pending-dropdown">
+          <button class="btn btn-sm" id="btn-toggle-pending" title="Lista de máquinas que aún no se han colocado">
+            📋 Ver pendientes ▾
+          </button>
+          <div class="dropdown-menu" id="pending-machines-list">
+            <!-- Rellenado dinámicamente por app.js -->
+          </div>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <!-- Botón Exportar DXF (AutoCAD Compatible) -->
+        <button class="btn btn-primary" id="btn-export-dxf" title="Descarga directa de archivo vectorial .dxf en metros para AutoCAD">
+          📐 Exportar DXF
+        </button>
+
+        <!-- Botón Guardar Sesión (.json) -->
+        <button class="btn" id="btn-save-json" title="Exporta estado de coordenadas y rotaciones a taller_layout.json">
+          💾 Guardar Sesión (.json)
+        </button>
+
+        <!-- Botón Cargar Sesión (.json) -->
+        <button class="btn" id="btn-load-json" title="Importa layout previo desde archivo .json">
+          📂 Cargar Sesión (.json)
+        </button>
+        <input type="file" id="file-input-json" accept=".json,application/json" style="display: none;">
+      </div>
+    </header>
+
+    <!-- WORKSPACE PRINCIPAL -->
+    <main id="main-workspace">
+      <!-- 5.2 SIDEBAR: PANEL DE CATÁLOGO (29 MÁQUINAS OFICIALES) -->
+      <aside id="sidebar-catalog">
+        <div class="sidebar-header">
+          <div class="sidebar-title">
+            <span>Catálogo de Activos</span>
+            <button class="btn btn-sm btn-primary" id="btn-open-create-modal" title="Crear un nuevo objeto o máquina personalizada">
+              + Nuevo Objeto
+            </button>
+          </div>
+          <p class="sidebar-desc">Arrastra las máquinas hacia el interior o ajusta su cantidad.</p>
+          <div class="catalog-search-wrap">
+            <input type="text" id="catalog-search" placeholder="🔍 Buscar máquina o categoría...">
+          </div>
+        </div>
+
+        <div class="sidebar-scrollable" id="sidebar-machine-list">
+          <!-- Tarjetas de máquinas generadas por app.js -->
+        </div>
+      </aside>
+
+      <!-- CANVAS VIEWPORT -->
+      <section id="canvas-viewport">
+        <!-- Floating CAD Toolbar -->
+        <div class="floating-cad-toolbar">
+          <button class="cad-tool-btn" id="btn-zoom-extents" title="Zoom Todo / Centrar Taller">
+            ⛶
+          </button>
+          <button class="cad-tool-btn" id="btn-zoom-in" title="Acercar (Zoom In)">
+            +
+          </button>
+          <button class="cad-tool-btn" id="btn-zoom-out" title="Alejar (Zoom Out)">
+            -
+          </button>
+          <div class="cad-tool-sep"></div>
+          <button class="cad-tool-btn active" id="btn-toggle-grid" title="Alternar Rejilla Métrica (1.0 m / 0.5 m)">
+            ▦
+          </button>
+          <button class="cad-tool-btn active" id="btn-toggle-clearance" title="Alternar Zonas de Seguridad / Offset entre Máquinas">
+            🛡
+          </button>
+          <div class="cad-tool-sep"></div>
+          <!-- Herramientas de Líneas Constructivas (Referencia) -->
+          <button class="cad-tool-btn" id="btn-tool-guideline" title="Línea Constructiva / Guía de Referencia (Clic inicio, clic fin)">
+            📏
+          </button>
+          <button class="cad-tool-btn" id="btn-clear-guidelines" title="Limpiar todas las líneas constructivas">
+            🧹
+          </button>
+          <div class="cad-tool-sep"></div>
+          <button class="cad-tool-btn" id="btn-reset-layout" title="Vaciar taller y regresar todas las máquinas al catálogo" style="color: #ef4444;">
+            🗑
+          </button>
+        </div>
+
+        <!-- Canvas 2D Nativo -->
+        <canvas id="cad-canvas"></canvas>
+
+        <!-- 5.4 INSPECTOR FLOTANTE DE MÁQUINA SELECCIONADA -->
+        <div id="inspector-panel" class="hidden">
+          <div class="inspector-header">
+            <div class="insp-title-box">
+              <h3 id="insp-name">Nombre Máquina</h3>
+              <span id="insp-dims">0.00 x 0.00 m</span>
+            </div>
+            <button class="btn-close-insp" id="btn-insp-close" title="Cerrar inspector">✕</button>
+          </div>
+
+          <div class="inspector-body">
+            <!-- Posición Métrica (X, Y) -->
+            <div class="insp-group">
+              <label>Posición Centroide (m)</label>
+              <div class="insp-row">
+                <div class="insp-input-box">
+                  <span>X:</span>
+                  <input type="number" id="insp-x" step="0.10">
+                </div>
+                <div class="insp-input-box">
+                  <span>Y:</span>
+                  <input type="number" id="insp-y" step="0.10">
+                </div>
+              </div>
+            </div>
+
+            <!-- Rotación Angular (Sección 5.3) -->
+            <div class="insp-group">
+              <label>Rotación Angular</label>
+              <div class="insp-range-box">
+                <input type="range" id="insp-rotation-slider" min="0" max="360" step="1">
+                <div class="insp-input-box" style="width: 70px;">
+                  <input type="number" id="insp-rotation" min="0" max="360" step="1">
+                  <span>°</span>
+                </div>
+              </div>
+              <!-- Botones de Rotación Rápida -->
+              <div class="rot-quick-btns">
+                <button class="btn-rot-sub" data-rot-inc="-90" title="Girar -90°">-90°</button>
+                <button class="btn-rot-sub" data-rot-inc="90" title="Girar +90° (Tecla R)">+90° [R]</button>
+                <button class="btn-rot-sub" data-rot-inc="-5" title="Ajuste fino -5° (Tecla Q)">-5° [Q]</button>
+                <button class="btn-rot-sub" data-rot-inc="5" title="Ajuste fino +5° (Tecla E)">+5° [E]</button>
+              </div>
+            </div>
+
+            <!-- Orientación del Nombre de la Máquina (0°, 90°, 180°, 270° paralelo a las caras) -->
+            <div class="insp-group">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                <label>Orientación del Nombre</label>
+                <span id="insp-label-rot-badge" class="badge-offset-indicator" style="background: rgba(56, 189, 248, 0.15); color: var(--accent-cyan);">0° Frontal (Ancho)</span>
+              </div>
+              <div class="edge-selector-grid" style="margin-bottom: 6px;">
+                <button type="button" class="btn-edge-pick btn-label-rot" data-rot="0" title="Paralelo a cara Frontal (0°)">0°</button>
+                <button type="button" class="btn-edge-pick btn-label-rot" data-rot="90" title="Paralelo a cara Derecha (90°)">90°</button>
+                <button type="button" class="btn-edge-pick btn-label-rot" data-rot="180" title="Paralelo a cara Trasera (180°)">180°</button>
+                <button type="button" class="btn-edge-pick btn-label-rot" data-rot="270" title="Paralelo a cara Izquierda (270°)">270°</button>
+              </div>
+              <button type="button" class="btn btn-sm btn-primary" id="btn-toggle-label-rot" style="width: 100%; justify-content: center;" title="Rotar orientación del texto +90° secuencialmente (0° ➔ 90° ➔ 180° ➔ 270°) [Atajo: Tecla T]">
+                🔄 Girar Texto +90° [T]
+              </button>
+            </div>
+
+            <!-- Gestión de Aristas: Operador y Offset (Sección 5.4) -->
+            <div class="insp-group">
+              <label>Línea de Operador (Verde)</label>
+              <div class="edge-selector-grid">
+                <button class="btn-edge-pick btn-op-edge" data-edge="0">Frontal</button>
+                <button class="btn-edge-pick btn-op-edge" data-edge="1">Derecho</button>
+                <button class="btn-edge-pick btn-op-edge" data-edge="2">Trasero</button>
+                <button class="btn-edge-pick btn-op-edge" data-edge="3">Izquierdo</button>
+              </div>
+              <span class="edge-legend green">● Clic sobre arista: asigna zona verde (#00FF00)</span>
+            </div>
+
+            <div class="insp-group">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px;">
+                <label>Arista de Offset a Muro</label>
+                <span id="insp-offset-badge" class="badge-offset-indicator">● CIAN ACTIVO: TRASERO</span>
+              </div>
+              <div class="edge-selector-grid">
+                <button class="btn-edge-pick btn-off-edge" data-edge="0">Frontal</button>
+                <button class="btn-edge-pick btn-off-edge" data-edge="1">Derecho</button>
+                <button class="btn-edge-pick btn-off-edge" data-edge="2">Trasero</button>
+                <button class="btn-edge-pick btn-off-edge" data-edge="3">Izquierdo</button>
+              </div>
+              <span class="edge-legend cyan">● Shift+Clic sobre arista: asigna arista de offset</span>
+            </div>
+
+            <!-- Distancia Métrica al Muro (wallOffset) -->
+            <div class="insp-group">
+              <label>Distancia a Muro (wallOffset)</label>
+              <div class="insp-input-box">
+                <span>Dist:</span>
+                <input type="number" id="insp-wall-offset" step="0.05" min="0.10" max="10.0" value="0.80">
+                <span>m</span>
+              </div>
+            </div>
+
+            <!-- Separación / Offset entre Máquinas (4 Caras) -->
+            <div class="insp-group">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                <label>Offset entre Máquinas (Separación)</label>
+                <span class="badge-offset-indicator" style="background: rgba(56, 189, 248, 0.15); color: var(--accent-cyan);">4 CARAS</span>
+              </div>
+              <div class="clearance-grid">
+                <div class="clearance-item">
+                  <span class="clearance-label">Frontal:</span>
+                  <div class="insp-input-box small">
+                    <input type="number" id="insp-clearance-0" step="0.05" min="0.0" max="10.0" value="0.00">
+                    <span>m</span>
+                  </div>
+                </div>
+                <div class="clearance-item">
+                  <span class="clearance-label">Derecho:</span>
+                  <div class="insp-input-box small">
+                    <input type="number" id="insp-clearance-1" step="0.05" min="0.0" max="10.0" value="0.00">
+                    <span>m</span>
+                  </div>
+                </div>
+                <div class="clearance-item">
+                  <span class="clearance-label">Trasero:</span>
+                  <div class="insp-input-box small">
+                    <input type="number" id="insp-clearance-2" step="0.05" min="0.0" max="10.0" value="0.00">
+                    <span>m</span>
+                  </div>
+                </div>
+                <div class="clearance-item">
+                  <span class="clearance-label">Izquierdo:</span>
+                  <div class="insp-input-box small">
+                    <input type="number" id="insp-clearance-3" step="0.05" min="0.0" max="10.0" value="0.00">
+                    <span>m</span>
+                  </div>
+                </div>
+              </div>
+              <!-- Presets rápidos -->
+              <div class="clearance-presets">
+                <button type="button" class="btn-clearance-preset" data-preset="0.0">0 m</button>
+                <button type="button" class="btn-clearance-preset" data-preset="0.50">0.5 m</button>
+                <button type="button" class="btn-clearance-preset" data-preset="0.80">0.8 m</button>
+                <button type="button" class="btn-clearance-preset" data-preset="1.00">1.0 m</button>
+                <button type="button" class="btn-clearance-preset" id="btn-clearance-apply-all" title="Copia el valor frontal a las 4 caras">Copiar a 4</button>
+              </div>
+            </div>
+
+            <!-- Acciones de Máquina -->
+            <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
+              <button class="btn btn-sm btn-primary" id="btn-insp-snap" style="justify-content: center;">
+                🧲 Alinear a Muro más Cercano
+              </button>
+              <button class="btn btn-sm" id="btn-insp-duplicate" style="justify-content: center; border-color: rgba(6, 182, 212, 0.4); color: var(--accent-cyan);" title="Duplicar este objeto [Ctrl+D]">
+                📋 Duplicar Activo [Ctrl+D]
+              </button>
+              <button class="btn btn-sm" id="btn-insp-remove" style="justify-content: center; color: #ef4444; border-color: rgba(239, 68, 68, 0.4);" title="Tecla Supr / Delete">
+                ✕ Retirar del Taller [Supr]
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer Status Bar -->
+        <footer id="canvas-status-bar">
+          <div class="status-left">
+            <span id="cursor-coords">X: 0.00 m | Y: 0.00 m</span>
+            <span class="legend-chip operator" title="Arista del operador: Línea verde continua #00FF00">🟢 Operador (#00FF00)</span>
+            <span class="legend-chip offset" title="Arista de offset: Línea cian eléctrico #00F0FF que se alinea al muro">🔵 Arista Offset (#00F0FF)</span>
+            <span>Escala: 1.0 m</span>
+          </div>
+          <div class="status-hints">
+            <span><kbd class="kbd-badge">R</kbd> Rotar 90°</span>
+            <span><kbd class="kbd-badge">T</kbd> Rotar Nombre</span>
+            <span><kbd class="kbd-badge">Q</kbd>/<kbd class="kbd-badge">E</kbd> ±5°</span>
+            <span><kbd class="kbd-badge">Ctrl+D</kbd> Duplicar</span>
+            <span><kbd class="kbd-badge">Supr</kbd> Retirar/Borrar</span>
+            <span><kbd class="kbd-badge">Ctrl</kbd> Sin Snap</span>
+            <span><kbd class="kbd-badge">Espacio</kbd> Pan</span>
+          </div>
+        </footer>
+      </section>
+    </main>
+
+    <!-- MODAL CREAR NUEVO OBJETO (PERSONALIZADO) -->
+    <div id="modal-create-object" class="modal-overlay hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>📐 Crear Nuevo Objeto / Máquina</h3>
+          <button class="btn-close-modal" id="btn-close-create-modal" type="button">✕</button>
+        </div>
+        <form id="form-create-object" class="modal-body">
+          <div class="form-group">
+            <label for="new-obj-type">Modo de Colocación</label>
+            <select id="new-obj-type">
+              <option value="template" selected>Plantilla Reutilizable (Permite colocar múltiples mesas/copias en distintas zonas)</option>
+              <option value="unique">Activo Único (Solo 1 unidad en inventario físico)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="new-obj-name">Nombre descriptivo</label>
+            <input type="text" id="new-obj-name" placeholder="Ej: Mesa de Trabajo CNC" required autocomplete="off">
+          </div>
+
+          <div class="form-group">
+            <label for="new-obj-category">Categoría</label>
+            <select id="new-obj-category">
+              <option value="Mecanizado CNC">Mecanizado CNC</option>
+              <option value="Torneado">Torneado</option>
+              <option value="Electroerosión">Electroerosión</option>
+              <option value="Rectificado">Rectificado</option>
+              <option value="Prensas">Prensas</option>
+              <option value="Bancos / Mesas">Bancos / Mesas</option>
+              <option value="Almacenaje / Logística">Almacenaje / Logística</option>
+              <option value="Servicios Auxiliares">Servicios Auxiliares</option>
+              <option value="Personalizado" selected>Personalizado</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="new-obj-width">Ancho [X] (m)</label>
+              <input type="number" id="new-obj-width" step="0.05" min="0.30" max="25.0" placeholder="1.80" required>
+            </div>
+            <div class="form-group">
+              <label for="new-obj-height">Profundidad [Y] (m)</label>
+              <input type="number" id="new-obj-height" step="0.05" min="0.30" max="25.0" placeholder="2.00" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="new-obj-wall-offset">Distancia a Muro (m)</label>
+              <input type="number" id="new-obj-wall-offset" step="0.05" min="0.10" max="10.0" value="0.80">
+            </div>
+            <div class="form-group">
+              <label for="new-obj-clearance">Separación entre Máquinas (m)</label>
+              <input type="number" id="new-obj-clearance" step="0.05" min="0.0" max="10.0" value="0.00">
+            </div>
+            <div class="form-group">
+              <label for="new-obj-color">Color</label>
+              <input type="color" id="new-obj-color" value="#0284c7">
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn" id="btn-cancel-create-modal">Cancelar</button>
+            <button type="submit" class="btn btn-primary">+ Crear y Añadir a Catálogo</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast"></div>
+  </div>
+
+  <!-- Scripts ES Modules -->
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

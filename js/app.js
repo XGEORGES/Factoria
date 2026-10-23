@@ -55,8 +55,18 @@ class LayoutPlannerApp {
     // Intentar restaurar sesión previa si existe
     const saved = loadFromLocalStorage();
     if (saved) {
-      if (saved.catalog && saved.catalog.length > 0) this.catalog = saved.catalog;
-      if (saved.machines) this.machines = saved.machines;
+      if (saved.catalog && saved.catalog.length > 0) {
+        this.catalog = saved.catalog;
+        this.catalog.forEach(c => {
+          if (c.wallOffset === 0.80) c.wallOffset = 0.00;
+        });
+      }
+      if (saved.machines) {
+        this.machines = saved.machines;
+        this.machines.forEach(m => {
+          if (m.wallOffset === 0.80) m.wallOffset = 0.00;
+        });
+      }
       if (saved.constructionLines) this.constructionLines = saved.constructionLines;
       this.updateInstanceNumbering();
     }
@@ -180,7 +190,7 @@ class LayoutPlannerApp {
       labelRotation: 0,
       operatorEdge: catItem.operatorEdge ?? 0,
       offsetEdge: catItem.offsetEdge ?? 2,
-      wallOffset: catItem.wallOffset ?? 0.80,
+      wallOffset: catItem.wallOffset ?? 0.00,
       clearanceOffsets: Array.isArray(catItem.clearanceOffsets) ? [...catItem.clearanceOffsets] : [0.00, 0.00, 0.00, 0.00],
       isPlaced: true,
       category: catItem.category || (isZone ? 'Zonas y Recintos' : 'Mecanizado'),
@@ -258,7 +268,7 @@ class LayoutPlannerApp {
             quantity: 1,
             category: selected.category || 'Mobiliario',
             color: selected.color || '#0284c7',
-            wallOffset: selected.wallOffset !== undefined ? selected.wallOffset : 0.80,
+            wallOffset: selected.wallOffset !== undefined ? selected.wallOffset : 0.00,
             clearanceOffsets: Array.isArray(selected.clearanceOffsets) ? [...selected.clearanceOffsets] : [0.00, 0.00, 0.00, 0.00],
             isCustom: true
           };
@@ -329,7 +339,7 @@ class LayoutPlannerApp {
         quantity: 1,
         category: selected.category || 'Mobiliario',
         color: selected.color || '#0284c7',
-        wallOffset: selected.wallOffset !== undefined ? selected.wallOffset : 0.80,
+        wallOffset: selected.wallOffset !== undefined ? selected.wallOffset : 0.00,
         clearanceOffsets: Array.isArray(selected.clearanceOffsets) ? [...selected.clearanceOffsets] : [0.00, 0.00, 0.00, 0.00],
         isCustom: true
       };
@@ -1205,7 +1215,7 @@ class LayoutPlannerApp {
       const selected = this.getSelectedMachine();
       if (selected) {
         const parsed = parseFloat(e.target.value);
-        const val = isNaN(parsed) ? 0.80 : Math.max(0.00, Math.min(10.0, parsed));
+        const val = isNaN(parsed) ? 0.00 : Math.max(0.00, Math.min(10.0, parsed));
         selected.wallOffset = Number(val.toFixed(2));
         this.saveState();
       }
@@ -1953,7 +1963,7 @@ class LayoutPlannerApp {
     if (this.inspY) this.inspY.value = selected.y.toFixed(2);
     if (this.inspRot) this.inspRot.value = Math.round(selected.rotation);
     if (this.inspRotSlider) this.inspRotSlider.value = Math.round(selected.rotation);
-    if (this.inspWallOffset) this.inspWallOffset.value = (selected.wallOffset ?? 0.80).toFixed(2);
+    if (this.inspWallOffset) this.inspWallOffset.value = (selected.wallOffset ?? 0.00).toFixed(2);
 
     // Actualizar botones de arista activa
     this.inspOpEdgeBtns.forEach(btn => {
@@ -2125,7 +2135,7 @@ class LayoutPlannerApp {
       const width = parseFloat(widthInput?.value);
       const height = parseFloat(heightInput?.value);
       const wallOffsetRaw = parseFloat(document.getElementById('new-obj-wall-offset')?.value);
-      const wallOffset = isNaN(wallOffsetRaw) ? 0.80 : Math.max(0.00, Math.min(10.0, wallOffsetRaw));
+      const wallOffset = isNaN(wallOffsetRaw) ? 0.00 : Math.max(0.00, Math.min(10.0, wallOffsetRaw));
       const clearanceVal = parseFloat(document.getElementById('new-obj-clearance')?.value) || 0.00;
       const color = colorInput?.value || (isZone ? '#6366f1' : '#0284c7');
 

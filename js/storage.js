@@ -55,7 +55,7 @@ export function exportLayoutJSON(machines, constructionLines = [], viewTransform
       quantity: Math.max(1, Number(c.quantity) || 1),
       category: c.category || "General",
       color: c.color || "#0284c7",
-      wallOffset: Number((c.wallOffset ?? 0.80).toFixed(2)),
+      wallOffset: Number((c.wallOffset ?? 0.00).toFixed(2)),
       clearanceOffsets: Array.isArray(c.clearanceOffsets) && c.clearanceOffsets.length === 4 
         ? c.clearanceOffsets.map(Number) 
         : [0.00, 0.00, 0.00, 0.00],
@@ -83,7 +83,7 @@ export function exportLayoutJSON(machines, constructionLines = [], viewTransform
       labelRotation: Number(m.labelRotation || 0),
       operatorEdge: m.operatorEdge ?? 0,
       offsetEdge: m.offsetEdge ?? 2,
-      wallOffset: Number((m.wallOffset ?? 0.80).toFixed(2)),
+      wallOffset: Number((m.wallOffset ?? 0.00).toFixed(2)),
       clearanceOffsets: Array.isArray(m.clearanceOffsets) && m.clearanceOffsets.length === 4 
         ? m.clearanceOffsets.map(Number) 
         : [0.00, 0.00, 0.00, 0.00],
@@ -141,7 +141,7 @@ export function validateLayoutData(data) {
         quantity: Math.max(1, Number(savedItem.quantity) || 1),
         category: savedItem.category || 'Mobiliario',
         color: savedItem.color || '#0284c7',
-        wallOffset: typeof savedItem.wallOffset === 'number' ? savedItem.wallOffset : (!isNaN(Number(savedItem?.wallOffset)) ? Number(savedItem.wallOffset) : 0.80),
+        wallOffset: typeof savedItem.wallOffset === 'number' ? savedItem.wallOffset : (!isNaN(Number(savedItem?.wallOffset)) ? Number(savedItem.wallOffset) : 0.00),
         clearanceOffsets: Array.isArray(savedItem.clearanceOffsets) && savedItem.clearanceOffsets.length === 4
           ? savedItem.clearanceOffsets.map(Number)
           : [0.00, 0.00, 0.00, 0.00],
@@ -168,7 +168,7 @@ export function validateLayoutData(data) {
       height: Number(raw.height) || 1.0,
       category: "Personalizado",
       color: "#64748b",
-      wallOffset: 0.80,
+      wallOffset: 0.00,
       clearanceOffsets: [0.00, 0.00, 0.00, 0.00],
       isZone: Boolean(raw.isZone)
     };
@@ -188,7 +188,7 @@ export function validateLayoutData(data) {
       labelRotation: typeof raw.labelRotation === 'number' ? raw.labelRotation : 0,
       operatorEdge: typeof raw.operatorEdge === 'number' ? raw.operatorEdge : 0,
       offsetEdge: typeof raw.offsetEdge === 'number' ? raw.offsetEdge : 2,
-      wallOffset: typeof raw.wallOffset === 'number' ? raw.wallOffset : (base.wallOffset !== undefined ? base.wallOffset : 0.80),
+      wallOffset: typeof raw.wallOffset === 'number' ? raw.wallOffset : (base.wallOffset !== undefined ? base.wallOffset : 0.00),
       clearanceOffsets: Array.isArray(raw.clearanceOffsets) && raw.clearanceOffsets.length === 4
         ? raw.clearanceOffsets.map(Number)
         : [...(base.clearanceOffsets || [0.00, 0.00, 0.00, 0.00])],

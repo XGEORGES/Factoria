@@ -740,7 +740,7 @@ export class CanvasEngine {
         const badgeY = offMidY + ny * 14;
 
         ctx.save();
-        const badgeText = `MURO: ${(z.wallOffset ?? 0.80).toFixed(2)}m`;
+        const badgeText = `MURO: ${(z.wallOffset ?? 0.00).toFixed(2)}m`;
         ctx.font = 'bold 9px monospace';
         const txtWidth = ctx.measureText(badgeText).width;
 
@@ -955,7 +955,7 @@ export class CanvasEngine {
         const badgeY = offMidY + ny * 14;
 
         ctx.save();
-        const badgeText = `OFFSET: ${(m.wallOffset ?? 0.80).toFixed(2)}m`;
+        const badgeText = `OFFSET: ${(m.wallOffset ?? 0.00).toFixed(2)}m`;
         ctx.font = 'bold 9px monospace';
         const txtWidth = ctx.measureText(badgeText).width;
 

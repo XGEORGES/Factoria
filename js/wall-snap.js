@@ -93,7 +93,7 @@ export function evaluateWallSnap(machine, options = {}) {
   // Si la distancia mínima es menor a 0.60m, activamos el Snap Magnético
   if (closestWall && minDistance < SNAP_TRIGGER_DISTANCE) {
     const wall = closestWall;
-    const wallOffset = machine.wallOffset !== undefined ? machine.wallOffset : 0.80;
+    const wallOffset = machine.wallOffset !== undefined ? machine.wallOffset : 0.00;
 
     // Normal interior del muro (apunta al interior del taller)
     const nx = wall.normal.x;

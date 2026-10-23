@@ -878,8 +878,13 @@ class LayoutPlannerApp {
         }
       }
 
-      // Escape: Deseleccionar todo
+      // Escape: Cerrar modal si está abierto, o deseleccionar todo en el canvas
       if (e.key === 'Escape') {
+        const modal = document.getElementById('modal-create-object');
+        if (modal && !modal.classList.contains('hidden')) {
+          modal.classList.add('hidden');
+          return;
+        }
         if (this.toolMode === 'guideline') {
           this.guidelineStart = null;
           this.engine.setTempGuideline(null);
@@ -2034,16 +2039,6 @@ class LayoutPlannerApp {
     const btnCancel = document.getElementById('btn-cancel-create-modal');
     const form = document.getElementById('form-create-object');
 
-    const openModal = () => {
-      modal?.classList.remove('hidden');
-      document.getElementById('new-obj-name')?.focus();
-    };
-
-    const closeModal = () => {
-      modal?.classList.add('hidden');
-      form?.reset();
-    };
-
     const natureSelect = document.getElementById('new-obj-nature');
     const nameInput = document.getElementById('new-obj-name');
     const catSelect = document.getElementById('new-obj-category');
@@ -2051,28 +2046,73 @@ class LayoutPlannerApp {
     const heightInput = document.getElementById('new-obj-height');
     const colorInput = document.getElementById('new-obj-color');
 
+    const openModal = () => {
+      modal?.classList.remove('hidden');
+      if (natureSelect) {
+        if (natureSelect.value === 'zone') {
+          if (!widthInput.value) widthInput.value = '6.00';
+          if (!heightInput.value) heightInput.value = '4.00';
+          if (!colorInput.value) colorInput.value = '#6366f1';
+        } else {
+          if (!widthInput.value) widthInput.value = '1.80';
+          if (!heightInput.value) heightInput.value = '2.00';
+          if (!colorInput.value) colorInput.value = '#0284c7';
+        }
+      }
+      setTimeout(() => nameInput?.focus(), 50);
+    };
+
+    const closeModal = () => {
+      modal?.classList.add('hidden');
+    };
+
     natureSelect?.addEventListener('change', () => {
       if (natureSelect.value === 'zone') {
         if (!nameInput.value || nameInput.value === 'Mesa de Trabajo CNC') {
           nameInput.value = 'Área Metrología';
         }
         if (catSelect) catSelect.value = 'Zonas y Recintos';
-        if (widthInput && (!widthInput.value || widthInput.value === '1.80')) widthInput.value = '6.00';
-        if (heightInput && (!heightInput.value || heightInput.value === '2.00')) heightInput.value = '4.00';
-        if (colorInput && colorInput.value === '#0284c7') colorInput.value = '#6366f1';
+        widthInput.value = '6.00';
+        heightInput.value = '4.00';
+        colorInput.value = '#6366f1';
       } else {
         if (nameInput.value === 'Área Metrología') nameInput.value = '';
         if (catSelect && catSelect.value === 'Zonas y Recintos') catSelect.value = 'Personalizado';
-        if (colorInput && colorInput.value === '#6366f1') colorInput.value = '#0284c7';
+        widthInput.value = '1.80';
+        heightInput.value = '2.00';
+        colorInput.value = '#0284c7';
       }
     });
 
     btnOpen?.addEventListener('click', openModal);
-    btnClose?.addEventListener('click', closeModal);
-    btnCancel?.addEventListener('click', closeModal);
 
-    modal?.addEventListener('click', (e) => {
-      if (e.target === modal) closeModal();
+    // Cerrar únicamente al pulsar explícitamente [✕] o [Cancelar]
+    btnClose?.addEventListener('click', () => {
+      closeModal();
+    });
+
+    btnCancel?.addEventListener('click', () => {
+      form?.reset();
+      closeModal();
+    });
+
+    // Detener propagación para evitar cierres accidentales al hacer clic dentro de la tarjeta
+    modal?.querySelector('.modal-card')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+
+    // Evitar que pulsar Enter en los campos de texto envíe/cierre el modal antes de tiempo
+    form?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+        e.preventDefault();
+        const inputs = Array.from(form.querySelectorAll('input:not([type="hidden"]):not([type="color"]), select'));
+        const idx = inputs.indexOf(e.target);
+        if (idx !== -1 && idx < inputs.length - 1) {
+          inputs[idx + 1].focus();
+        } else {
+          form.requestSubmit();
+        }
+      }
     });
 
     form?.addEventListener('submit', (e) => {
@@ -2113,8 +2153,10 @@ class LayoutPlannerApp {
       };
 
       this.catalog.push(newCatItem);
+      this.updateInstanceNumbering();
       this.updateAllUI();
       this.saveState();
+      form?.reset();
       closeModal();
       this.showToast(`"${name}" (${isZone ? 'Zona / Recinto' : 'Objeto'}) añadido al catálogo.`);
     });

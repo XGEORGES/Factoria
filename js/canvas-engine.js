@@ -50,6 +50,9 @@ export class CanvasEngine {
     this.selectedGuidelineId = null;
     this.tempGuideline = null;
 
+    // Herramienta de medición punto a punto
+    this.activeMeasurement = null;
+
     // Cache de colisiones
     this.collisionMap = new Map(); // id -> boolean (true si colisiona)
 
@@ -138,6 +141,11 @@ export class CanvasEngine {
 
   setTempGuideline(guide) {
     this.tempGuideline = guide;
+    this.requestRender();
+  }
+
+  setMeasurement(meas) {
+    this.activeMeasurement = meas;
     this.requestRender();
   }
 
@@ -312,6 +320,11 @@ export class CanvasEngine {
 
     // 6. Ejes de coordenadas de origen (0,0)
     this.drawOriginAxes();
+
+    // 7. Herramienta Medir activa (Punto a Punto)
+    if (this.activeMeasurement) {
+      this.drawMeasurement(this.activeMeasurement);
+    }
   }
 
   /**
@@ -1657,5 +1670,133 @@ export class CanvasEngine {
       }
     }
     return null;
+  }
+
+  /**
+   * Dibuja la medición punto a punto activa de la Herramienta Medir
+   */
+  drawMeasurement(m) {
+    if (!m) return;
+    const ctx = this.ctx;
+
+    // 1. Resaltado visual del punto de Snap Magnético (esquinas, muros, etc.)
+    if (m.snapPoint) {
+      const sp = this.worldToScreen(m.snapPoint.x, m.snapPoint.y);
+      ctx.save();
+      ctx.strokeStyle = '#facc15'; // Amarillo CAD de snap
+      ctx.lineWidth = 2;
+      ctx.strokeRect(sp.x - 5, sp.y - 5, 10, 10);
+      ctx.fillStyle = 'rgba(250, 204, 21, 0.25)';
+      ctx.fillRect(sp.x - 5, sp.y - 5, 10, 10);
+
+      if (m.snapPoint.label) {
+        ctx.font = 'bold 10px monospace';
+        const tw = ctx.measureText(m.snapPoint.label).width;
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+        ctx.fillRect(sp.x + 8, sp.y - 14, tw + 8, 16);
+        ctx.strokeStyle = '#facc15';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(sp.x + 8, sp.y - 14, tw + 8, 16);
+        ctx.fillStyle = '#facc15';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(m.snapPoint.label, sp.x + 12, sp.y - 6);
+      }
+      ctx.restore();
+    }
+
+    // Si aún no se fijó el primer punto, terminar aquí
+    if (m.x1 === null || m.x1 === undefined || m.x2 === null || m.x2 === undefined) return;
+
+    const p1 = this.worldToScreen(m.x1, m.y1);
+    const p2 = this.worldToScreen(m.x2, m.y2);
+
+    const lengthM = Math.hypot(m.x2 - m.x1, m.y2 - m.y1);
+    const dxM = Math.abs(m.x2 - m.x1);
+    const dyM = Math.abs(m.y2 - m.y1);
+
+    ctx.save();
+
+    // 2. Línea de cota principal
+    ctx.beginPath();
+    if (!m.isFinished) {
+      ctx.setLineDash([5, 4]);
+    }
+    ctx.strokeStyle = m.isFinished ? '#10b981' : '#f59e0b'; // Verde fijado o ámbar activo
+    ctx.lineWidth = 2.5;
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // 3. Marcadores en los extremos P1 y P2
+    [p1, p2].forEach(pt => {
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
+      ctx.fillStyle = m.isFinished ? '#10b981' : '#f59e0b';
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    });
+
+    // Ticks oblicuos de cota arquitectónica en P1 y P2
+    const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+    const perpAngle = angle + Math.PI / 4;
+    const tickLen = 6;
+    const cosTick = Math.cos(perpAngle);
+    const sinTick = Math.sin(perpAngle);
+
+    ctx.beginPath();
+    ctx.strokeStyle = m.isFinished ? '#10b981' : '#f59e0b';
+    ctx.lineWidth = 2;
+    ctx.moveTo(p1.x - cosTick * tickLen, p1.y - sinTick * tickLen);
+    ctx.lineTo(p1.x + cosTick * tickLen, p1.y + sinTick * tickLen);
+    ctx.moveTo(p2.x - cosTick * tickLen, p2.y - sinTick * tickLen);
+    ctx.lineTo(p2.x + cosTick * tickLen, p2.y + sinTick * tickLen);
+    ctx.stroke();
+
+    // 4. Cartel / Badge de Medición flotante
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+
+    const mainLabel = `📏 ${lengthM.toFixed(3)} m`;
+    const isDiagonal = dxM >= 0.05 && dyM >= 0.05;
+    const subLabel = isDiagonal ? `ΔX: ${dxM.toFixed(2)}m  ΔY: ${dyM.toFixed(2)}m` : null;
+
+    ctx.font = 'bold 12px monospace';
+    const mainTw = ctx.measureText(mainLabel).width;
+    let subTw = 0;
+    if (subLabel) {
+      ctx.font = '10px monospace';
+      subTw = ctx.measureText(subLabel).width;
+    }
+    const boxW = Math.max(mainTw, subTw) + 16;
+    const boxH = subLabel ? 34 : 22;
+    const boxX = midX - boxW / 2;
+    const boxY = midY - boxH / 2;
+
+    // Fondo y borde del cartel
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+    ctx.fillRect(boxX, boxY, boxW, boxH);
+    ctx.strokeStyle = m.isFinished ? '#10b981' : '#f59e0b';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(boxX, boxY, boxW, boxH);
+
+    // Texto de longitud principal
+    ctx.font = 'bold 12px monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(mainLabel, midX, subLabel ? boxY + 11 : midY);
+
+    // Texto de componentes ortogonales (ΔX, ΔY)
+    if (subLabel) {
+      ctx.font = '10px monospace';
+      ctx.fillStyle = '#94a3b8';
+      ctx.fillText(subLabel, midX, boxY + 24);
+    }
+
+    ctx.restore();
   }
 }

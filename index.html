@@ -104,6 +104,10 @@
             🧩
           </button>
           <div class="cad-tool-sep"></div>
+          <!-- Herramienta Medir (Punto a Punto) -->
+          <button class="cad-tool-btn" id="btn-tool-measure" title="Herramienta Medir: Distancia punto a punto (Clic inicio, clic fin)">
+            📐
+          </button>
           <!-- Herramientas de Líneas Constructivas (Referencia) -->
           <button class="cad-tool-btn" id="btn-tool-guideline" title="Línea Constructiva / Guía de Referencia (Clic inicio, clic fin)">
             📏
@@ -297,6 +301,7 @@
             <span class="legend-chip offset" title="Arista de offset: Línea cian eléctrico #00F0FF que se alinea al muro">🔵 Arista Offset (#00F0FF)</span>
             <span class="legend-chip snap-badge active-snap" id="status-snap-indicator" title="Clic para alternar Snap Magnético a Muros">🧲 Snap Muros: ON</span>
             <span class="legend-chip snap-badge active-snap" id="status-object-snap-indicator" title="Clic para alternar Snap y Offsets entre Objetos y Zonas">🧩 Snap Objetos: ON</span>
+            <span id="status-measure-badge" class="legend-chip" style="display: none; color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4);">📐 Medida: 0.00 m</span>
             <span>Escala: 1.0 m</span>
           </div>
           <div class="status-hints">

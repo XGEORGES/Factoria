@@ -591,3 +591,57 @@ export function getZoneInnerWallSegments(zone) {
   return segments;
 }
 
+/**
+ * Busca el punto notable más cercano (esquinas de máquinas/zonas, muros, guías)
+ * para facilitar el snap magnético en la herramienta de medición.
+ * @param {number} wx Coordenada World X del cursor
+ * @param {number} wy Coordenada World Y del cursor
+ * @param {Array} machines Lista de máquinas y zonas colocadas
+ * @param {Array} constructionLines Lista de líneas constructivas
+ * @param {number} snapRadiusM Radio de snap en metros
+ * @returns {Object|null} { x, y, label } o null
+ */
+export function findSnapPointForMeasure(wx, wy, machines = [], constructionLines = [], snapRadiusM = 0.5) {
+  let closest = null;
+  let minDist = snapRadiusM;
+
+  const checkPoint = (x, y, label) => {
+    const dist = Math.hypot(wx - x, wy - y);
+    if (dist < minDist) {
+      minDist = dist;
+      closest = { x: Number(x.toFixed(3)), y: Number(y.toFixed(3)), label };
+    }
+  };
+
+  // 1. Vértices del perímetro del taller y puntos medios de muros
+  const n = PERIMETER_VERTICES.length;
+  for (let i = 0; i < n; i++) {
+    const v1 = PERIMETER_VERTICES[i];
+    const v2 = PERIMETER_VERTICES[(i + 1) % n];
+    checkPoint(v1.x, v1.y, `Vértice ${v1.name}`);
+    checkPoint((v1.x + v2.x) / 2, (v1.y + v2.y) / 2, `Medio Muro ${v1.name}-${v2.name}`);
+  }
+
+  // 2. Máquinas y zonas colocadas (esquinas, puntos medios y centro)
+  for (const m of machines) {
+    if (!m.isPlaced) continue;
+    const corners = getMachineCorners(m);
+    for (let i = 0; i < 4; i++) {
+      const c1 = corners[i];
+      const c2 = corners[(i + 1) % 4];
+      checkPoint(c1.x, c1.y, `Esquina ${m.name}`);
+      checkPoint((c1.x + c2.x) / 2, (c1.y + c2.y) / 2, `Medio ${m.name}`);
+    }
+    checkPoint(m.x, m.y, `Centro ${m.name}`);
+  }
+
+  // 3. Líneas constructivas
+  for (const line of constructionLines) {
+    checkPoint(line.x1, line.y1, 'Extremo Guía');
+    checkPoint(line.x2, line.y2, 'Extremo Guía');
+    checkPoint((line.x1 + line.x2) / 2, (line.y1 + line.y2) / 2, 'Medio Guía');
+  }
+
+  return closest;
+}
+

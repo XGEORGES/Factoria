@@ -10,7 +10,7 @@ import { CanvasEngine } from './canvas-engine.js';
 import { evaluateWallSnap } from './wall-snap.js';
 import { downloadDXF } from './dxf-exporter.js';
 import { exportLayoutJSON, importLayoutFromFile, saveToLocalStorage, loadFromLocalStorage } from './storage.js';
-import { getWorkshopBounds, findClosestWall, evaluateInterMachineSnap, isPointInsideMachine, isMachineInsideZone, getZoneInnerWallSegments, getWallSegments, pointToSegmentDistance } from './geometry.js';
+import { getWorkshopBounds, findClosestWall, evaluateInterMachineSnap, isPointInsideMachine, isMachineInsideZone, getZoneInnerWallSegments, getWallSegments, pointToSegmentDistance, findSnapPointForMeasure } from './geometry.js';
 
 class LayoutPlannerApp {
   constructor() {
@@ -24,8 +24,9 @@ class LayoutPlannerApp {
     // Herramientas y Guías Constructivas
     this.constructionLines = [];
     this.selectedGuidelineId = null;
-    this.toolMode = 'select'; // 'select' | 'guideline'
+    this.toolMode = 'select'; // 'select' | 'guideline' | 'measure'
     this.guidelineStart = null;
+    this.measureStart = null;
 
     // Modos de interacción con el puntero
     this.dragMode = 'none'; // 'pan' | 'drag-machine' | 'rotate-gizmo'
@@ -124,6 +125,7 @@ class LayoutPlannerApp {
     this.statusSnapIndicator = document.getElementById('status-snap-indicator');
     this.btnToggleObjectSnap = document.getElementById('btn-toggle-object-snap');
     this.statusObjectSnapIndicator = document.getElementById('status-object-snap-indicator');
+    this.statusMeasureBadge = document.getElementById('status-measure-badge');
   }
 
   initCanvasEngine() {
@@ -417,6 +419,65 @@ class LayoutPlannerApp {
 
       this.dragStart = { x: sx, y: sy };
 
+      // 0. Modo Herramienta Medir (Punto a Punto)
+      if (this.toolMode === 'measure' && e.button === 0) {
+        const worldPt = this.engine.screenToWorld(sx, sy);
+        const snapRadiusM = 16 / this.engine.scale;
+        const snapPt = findSnapPointForMeasure(worldPt.x, worldPt.y, this.machines, this.constructionLines, snapRadiusM);
+        const effectivePt = snapPt ? { x: snapPt.x, y: snapPt.y } : worldPt;
+
+        if (!this.measureStart) {
+          this.measureStart = { x: effectivePt.x, y: effectivePt.y };
+          this.engine.setMeasurement({
+            x1: effectivePt.x,
+            y1: effectivePt.y,
+            x2: effectivePt.x,
+            y2: effectivePt.y,
+            isFinished: false,
+            snapPoint: null
+          });
+          const ptDesc = snapPt ? ` (${snapPt.label})` : '';
+          this.showToast(`Punto inicial fijado${ptDesc}. Haz clic en el punto final (mantén Shift para ortogonal).`);
+          if (this.statusMeasureBadge) {
+            this.statusMeasureBadge.style.display = 'inline-flex';
+            this.statusMeasureBadge.textContent = '📐 Medición en curso...';
+          }
+        } else {
+          let endX = effectivePt.x;
+          let endY = effectivePt.y;
+          if (e.shiftKey) {
+            const dx = Math.abs(endX - this.measureStart.x);
+            const dy = Math.abs(endY - this.measureStart.y);
+            if (dx > dy) endY = this.measureStart.y;
+            else endX = this.measureStart.x;
+          }
+          const lengthM = Math.hypot(endX - this.measureStart.x, endY - this.measureStart.y);
+          const dxM = Math.abs(endX - this.measureStart.x);
+          const dyM = Math.abs(endY - this.measureStart.y);
+
+          this.engine.setMeasurement({
+            x1: this.measureStart.x,
+            y1: this.measureStart.y,
+            x2: endX,
+            y2: endY,
+            isFinished: true,
+            length: lengthM,
+            dx: dxM,
+            dy: dyM,
+            snapPoint: null
+          });
+
+          const ptDesc = snapPt ? ` (${snapPt.label})` : '';
+          this.showToast(`Longitud medida: ${lengthM.toFixed(3)} m (dX: ${dxM.toFixed(2)} m, dY: ${dyM.toFixed(2)} m)${ptDesc}. Clic para medir otra o Esc para salir.`);
+          if (this.statusMeasureBadge) {
+            this.statusMeasureBadge.style.display = 'inline-flex';
+            this.statusMeasureBadge.textContent = `📐 Distancia: ${lengthM.toFixed(3)} m`;
+          }
+          this.measureStart = null;
+        }
+        return;
+      }
+
       // 1. Modo Línea Constructiva / Guía de Referencia
       if (this.toolMode === 'guideline' && e.button === 0) {
         const worldPt = this.engine.screenToWorld(sx, sy);
@@ -587,6 +648,55 @@ class LayoutPlannerApp {
       const worldPt = this.engine.screenToWorld(sx, sy);
       if (this.cursorCoords) {
         this.cursorCoords.textContent = `X: ${worldPt.x.toFixed(2)} m | Y: ${worldPt.y.toFixed(2)} m`;
+      }
+
+      // Modo Herramienta Medir activo
+      if (this.toolMode === 'measure') {
+        canvas.style.cursor = 'crosshair';
+        const snapRadiusM = 16 / this.engine.scale;
+        const snapPt = findSnapPointForMeasure(worldPt.x, worldPt.y, this.machines, this.constructionLines, snapRadiusM);
+
+        if (this.measureStart) {
+          let endX = snapPt ? snapPt.x : worldPt.x;
+          let endY = snapPt ? snapPt.y : worldPt.y;
+          if (e.shiftKey) {
+            const dx = Math.abs(endX - this.measureStart.x);
+            const dy = Math.abs(endY - this.measureStart.y);
+            if (dx > dy) endY = this.measureStart.y;
+            else endX = this.measureStart.x;
+          }
+          const lengthM = Math.hypot(endX - this.measureStart.x, endY - this.measureStart.y);
+          const dxM = Math.abs(endX - this.measureStart.x);
+          const dyM = Math.abs(endY - this.measureStart.y);
+
+          this.engine.setMeasurement({
+            x1: this.measureStart.x,
+            y1: this.measureStart.y,
+            x2: endX,
+            y2: endY,
+            isFinished: false,
+            snapPoint: snapPt
+          });
+          if (this.statusMeasureBadge) {
+            this.statusMeasureBadge.style.display = 'inline-flex';
+            this.statusMeasureBadge.textContent = `📐 ${lengthM.toFixed(2)} m (dX: ${dxM.toFixed(2)}m, dY: ${dyM.toFixed(2)}m)`;
+          }
+        } else if (this.engine.activeMeasurement?.isFinished) {
+          this.engine.setMeasurement({
+            ...this.engine.activeMeasurement,
+            snapPoint: snapPt
+          });
+        } else {
+          this.engine.setMeasurement({
+            x1: null,
+            y1: null,
+            x2: null,
+            y2: null,
+            isFinished: false,
+            snapPoint: snapPt
+          });
+        }
+        return;
       }
 
       // Modo trazo de línea constructiva activo
@@ -901,6 +1011,11 @@ class LayoutPlannerApp {
           modal.classList.add('hidden');
           return;
         }
+        if (this.toolMode === 'measure') {
+          this.setToolMode('select');
+          this.showToast('Medición finalizada.');
+          return;
+        }
         if (this.toolMode === 'guideline') {
           this.guidelineStart = null;
           this.engine.setTempGuideline(null);
@@ -1056,6 +1171,15 @@ class LayoutPlannerApp {
 
     this.statusObjectSnapIndicator?.addEventListener('click', () => {
       this.toggleObjectSnap();
+    });
+
+    // Herramienta Medir (Punto a Punto)
+    document.getElementById('btn-tool-measure')?.addEventListener('click', () => {
+      if (this.toolMode === 'measure') {
+        this.setToolMode('select');
+      } else {
+        this.setToolMode('measure');
+      }
     });
 
     // Herramienta Línea Constructiva (Referencia)
@@ -2070,15 +2194,32 @@ class LayoutPlannerApp {
     this.toolMode = mode;
     this.guidelineStart = null;
     this.engine.setTempGuideline(null);
+    this.measureStart = null;
+    if (mode !== 'measure') {
+      this.engine.setMeasurement(null);
+      if (this.statusMeasureBadge) this.statusMeasureBadge.style.display = 'none';
+    }
 
-    const btn = document.getElementById('btn-tool-guideline');
-    if (btn) btn.classList.toggle('active', mode === 'guideline');
+    const btnGuideline = document.getElementById('btn-tool-guideline');
+    if (btnGuideline) btnGuideline.classList.toggle('active', mode === 'guideline');
+
+    const btnMeasure = document.getElementById('btn-tool-measure');
+    if (btnMeasure) btnMeasure.classList.toggle('active', mode === 'measure');
 
     if (mode === 'guideline') {
       this.canvas.style.cursor = 'crosshair';
       this.selectMachine(null);
       this.selectGuideline(null);
       this.showToast('Modo Línea Constructiva: Haz clic en el canvas para trazar una guía.');
+    } else if (mode === 'measure') {
+      this.canvas.style.cursor = 'crosshair';
+      this.selectMachine(null);
+      this.selectGuideline(null);
+      if (this.statusMeasureBadge) {
+        this.statusMeasureBadge.style.display = 'inline-flex';
+        this.statusMeasureBadge.textContent = '📐 Medir: Clic punto inicial';
+      }
+      this.showToast('Herramienta Medir: Haz clic en el punto inicial (se imanta a esquinas y muros).');
     } else {
       this.canvas.style.cursor = 'default';
     }

@@ -17,6 +17,8 @@ class LayoutPlannerApp {
     this.catalog = createFreshInventory();
     this.machines = [];
     this.selectedMachineId = null;
+    this.selectedMachineIds = new Set();
+    this.groupDragStartPositions = [];
     this.searchQuery = '';
 
     // Herramientas y Guías Constructivas
@@ -34,6 +36,10 @@ class LayoutPlannerApp {
     this.isSpacePressed = false;
     this.isCtrlPressed = false;
     this.isShiftPressed = false;
+
+    // Snap Magnético a Muros (activado por defecto, configurable por usuario)
+    const savedSnap = localStorage.getItem('factoria_wall_snap_enabled');
+    this.wallSnapEnabled = savedSnap !== null ? savedSnap === 'true' : true;
 
     this.initElements();
     this.initCanvasEngine();
@@ -97,6 +103,8 @@ class LayoutPlannerApp {
     this.btnClearancePresets = document.querySelectorAll('.btn-clearance-preset[data-preset]');
     this.btnClearanceApplyAll = document.getElementById('btn-clearance-apply-all');
     this.btnToggleClearance = document.getElementById('btn-toggle-clearance');
+    this.btnToggleWallSnap = document.getElementById('btn-toggle-wall-snap');
+    this.statusSnapIndicator = document.getElementById('status-snap-indicator');
   }
 
   initCanvasEngine() {
@@ -189,16 +197,17 @@ class LayoutPlannerApp {
     }
 
     // Evaluamos si cae cerca a un muro o máquina para snap
+    const disableWallSnap = !this.wallSnapEnabled || this.isCtrlPressed || this.isShiftPressed;
     const disableSnap = this.isCtrlPressed || this.isShiftPressed;
     let wallSnapRes = { snapped: false };
 
     if (parentZone) {
       // Snap magnético a las paredes interiores de la zona padre
       const innerWalls = getZoneInnerWallSegments(parentZone);
-      wallSnapRes = evaluateWallSnap(newInst, { disableSnap, customWalls: innerWalls });
+      wallSnapRes = evaluateWallSnap(newInst, { disableSnap: disableWallSnap, customWalls: innerWalls });
     } else {
       // Snap a los muros exteriores del taller
-      wallSnapRes = evaluateWallSnap(newInst, { disableSnap });
+      wallSnapRes = evaluateWallSnap(newInst, { disableSnap: disableWallSnap });
     }
 
     const machineSnapRes = evaluateInterMachineSnap(newInst, this.machines, { disableSnap });
@@ -226,9 +235,74 @@ class LayoutPlannerApp {
   }
 
   /**
-   * Duplica el objeto o máquina actualmente seleccionado [Ctrl+D]
+   * Duplica las entidades actualmente seleccionadas (soporta individual o selección múltiple)
    */
   duplicateSelectedMachine() {
+    if (this.selectedMachineIds.size > 1) {
+      const selectedList = this.getSelectedMachines();
+      const newIds = [];
+      for (const selected of selectedList) {
+        const catId = selected.catalogId || selected.id;
+        let catItem = this.catalog.find(c => c.id === catId);
+        if (catItem?.isUnique) continue;
+        if (!catItem) {
+          catItem = {
+            id: catId,
+            name: selected.name.replace(/ #\d+$/, ''),
+            width: selected.width,
+            height: selected.height,
+            quantity: 1,
+            category: selected.category || 'Mobiliario',
+            color: selected.color || '#0284c7',
+            wallOffset: selected.wallOffset !== undefined ? selected.wallOffset : 0.80,
+            clearanceOffsets: Array.isArray(selected.clearanceOffsets) ? [...selected.clearanceOffsets] : [0.00, 0.00, 0.00, 0.00],
+            isCustom: true
+          };
+          this.catalog.push(catItem);
+        }
+
+        const existingInstances = this.machines.filter(m => (m.catalogId === catId || m.id === catId) && m.isPlaced);
+        const placedCount = existingInstances.length;
+        if (placedCount >= (catItem.quantity || 1)) {
+          catItem.quantity = placedCount + 1;
+        }
+
+        const newName = `${catItem.name} #${placedCount + 1}`;
+        const newId = `inst_${catId}_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+        const duplicated = {
+          ...selected,
+          id: newId,
+          catalogId: catId,
+          name: newName,
+          x: Number((selected.x + 1.0).toFixed(2)),
+          y: Number((selected.y + 1.0).toFixed(2)),
+          rotation: selected.rotation,
+          operatorEdge: selected.operatorEdge,
+          offsetEdge: selected.offsetEdge,
+          wallOffset: selected.wallOffset,
+          clearanceOffsets: Array.isArray(selected.clearanceOffsets) ? [...selected.clearanceOffsets] : [0.00, 0.00, 0.00, 0.00],
+          isPlaced: true,
+          isCustom: true,
+          isZone: Boolean(selected.isZone),
+          parentId: selected.parentId || null
+        };
+        this.machines.push(duplicated);
+        newIds.push(newId);
+      }
+
+      if (newIds.length > 0) {
+        this.selectedMachineIds = new Set(newIds);
+        this.selectedMachineId = newIds[0];
+        this.engine.setSelectedMachineIds(newIds);
+        this.engine.updateCollisions();
+        this.engine.requestRender();
+        this.updateAllUI();
+        this.saveState();
+        this.showToast(`${newIds.length} elementos duplicados con éxito.`);
+      }
+      return;
+    }
+
     const selected = this.getSelectedMachine();
     if (!selected) {
       this.showToast('Selecciona primero un objeto en el plano para duplicarlo.');
@@ -284,8 +358,9 @@ class LayoutPlannerApp {
     };
 
     // Evaluamos si el duplicado se pega a algún muro o máquina
+    const disableWallSnap = !this.wallSnapEnabled || this.isCtrlPressed || this.isShiftPressed;
     const disableSnap = this.isCtrlPressed || this.isShiftPressed;
-    const wallSnapRes = evaluateWallSnap(duplicated, { disableSnap });
+    const wallSnapRes = evaluateWallSnap(duplicated, { disableSnap: disableWallSnap });
     const machineSnapRes = evaluateInterMachineSnap(duplicated, this.machines, { disableSnap });
 
     if (wallSnapRes.snapped) {
@@ -401,26 +476,30 @@ class LayoutPlannerApp {
           }
         }
 
-        // 3.3 Verificar si clicó sobre cualquier máquina colocada
+        // 3.3 Verificar si clicó sobre cualquier máquina o zona colocada
         const hitMachine = this.engine.hitTestMachine(sx, sy);
         if (hitMachine) {
-          this.selectMachine(hitMachine.id);
-          this.selectGuideline(null);
-          this.dragMode = 'drag-machine';
-          this.machineStartPos = {
-            x: hitMachine.x,
-            y: hitMachine.y,
-            rotation: hitMachine.rotation
-          };
-          if (hitMachine.isZone) {
-            this.childrenStartPos = this.machines
-              .filter(m => m.parentId === hitMachine.id && m.isPlaced)
-              .map(child => ({ id: child.id, x: child.x, y: child.y, rotation: child.rotation || 0 }));
+          if (e.ctrlKey || e.metaKey) {
+            // Selección Múltiple con tecla Control
+            this.selectMachine(hitMachine.id, true);
+            this.selectGuideline(null);
+            this.dragMode = 'drag-machine';
+            this.recordGroupDragStart();
+            canvas.style.cursor = 'move';
+            return;
           } else {
-            this.childrenStartPos = [];
+            // Clic normal sin Ctrl:
+            // Si la entidad ya pertenece a la selección múltiple actual,
+            // conservamos el grupo para permitir desplazarlos todos juntos de golpe.
+            if (!this.selectedMachineIds.has(hitMachine.id)) {
+              this.selectMachine(hitMachine.id, false);
+            }
+            this.selectGuideline(null);
+            this.dragMode = 'drag-machine';
+            this.recordGroupDragStart();
+            canvas.style.cursor = 'move';
+            return;
           }
-          canvas.style.cursor = 'move';
-          return;
         }
 
         // 3.4 Verificar si clicó sobre una línea constructiva
@@ -434,8 +513,10 @@ class LayoutPlannerApp {
           this.selectGuideline(null);
         }
 
-        // 3.5 Clic en fondo vacío -> deseleccionar e iniciar Pan
-        this.selectMachine(null);
+        // 3.5 Clic en fondo vacío -> deseleccionar e iniciar Pan si no se presiona Ctrl
+        if (!e.ctrlKey && !e.metaKey) {
+          this.clearSelection();
+        }
         this.dragMode = 'pan';
         canvas.style.cursor = 'grabbing';
       }
@@ -559,8 +640,33 @@ class LayoutPlannerApp {
         return;
       }
 
-      // 3. Arrastre de Máquina o Zona (Sección 5.3 y 6.2)
+      // 3. Arrastre de Máquina o Zona
       if (this.dragMode === 'drag-machine') {
+        const primarySelected = this.getSelectedMachine();
+        if (!primarySelected || !this.groupDragStartPositions || this.groupDragStartPositions.length === 0) return;
+
+        const dxMeters = dxPx / this.engine.scale;
+        const dyMeters = -dyPx / this.engine.scale; // Y invertido en pantalla
+
+        // DESPLAZAMIENTO EN BLOQUE DE MÚLTIPLES OBJETOS Y ZONAS ("desplazar de golpe"):
+        if (this.selectedMachineIds.size > 1) {
+          const deltaX = Number(dxMeters.toFixed(2));
+          const deltaY = Number(dyMeters.toFixed(2));
+
+          for (const item of this.groupDragStartPositions) {
+            const m = this.machines.find(x => x.id === item.id);
+            if (m) {
+              m.x = Number((item.startX + deltaX).toFixed(2));
+              m.y = Number((item.startY + deltaY).toFixed(2));
+            }
+          }
+
+          this.engine.setSnapGuide(null);
+          this.engine.updateCollisions();
+          this.engine.requestRender();
+          this.updateInspector();
+          return;
+        }
         const dxMeters = dxPx / this.engine.scale;
         const dyMeters = -dyPx / this.engine.scale; // Y invertido en pantalla
 
@@ -574,11 +680,12 @@ class LayoutPlannerApp {
           y: targetY
         };
 
+        const disableWallSnap = !this.wallSnapEnabled || this.isCtrlPressed || this.isShiftPressed;
         const disableSnap = this.isCtrlPressed || this.isShiftPressed;
 
         if (selected.isZone) {
           // Snap de la zona contra los muros perimetrales del taller y entre máquinas externas
-          const wallSnapRes = evaluateWallSnap(tempMachine, { disableSnap });
+          const wallSnapRes = evaluateWallSnap(tempMachine, { disableSnap: disableWallSnap });
           const machineSnapRes = evaluateInterMachineSnap(tempMachine, this.machines, { disableSnap });
 
           if (wallSnapRes.snapped) {
@@ -623,10 +730,10 @@ class LayoutPlannerApp {
           if (parentZone) {
             // Snap magnético contra las paredes interiores de la zona padre
             const innerWalls = getZoneInnerWallSegments(parentZone);
-            wallSnapRes = evaluateWallSnap(tempMachine, { disableSnap, customWalls: innerWalls });
+            wallSnapRes = evaluateWallSnap(tempMachine, { disableSnap: disableWallSnap, customWalls: innerWalls });
           } else {
             // Snap a los muros exteriores del taller
-            wallSnapRes = evaluateWallSnap(tempMachine, { disableSnap });
+            wallSnapRes = evaluateWallSnap(tempMachine, { disableSnap: disableWallSnap });
           }
 
           const machineSnapRes = evaluateInterMachineSnap(tempMachine, this.machines, { disableSnap });
@@ -712,96 +819,14 @@ class LayoutPlannerApp {
         this.canvas.style.cursor = 'grab';
       }
 
-      // Si el foco está en un input numérico, permitimos tipeo
-      if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) {
-        return;
-      }
-
-      // 1. Borrar línea constructiva si está seleccionada
-      if ((e.key === 'Delete' || e.key === 'Backspace') && this.selectedGuidelineId) {
-        e.preventDefault();
-        this.constructionLines = this.constructionLines.filter(l => l.id !== this.selectedGuidelineId);
-        this.selectedGuidelineId = null;
-        this.engine.setSelectedGuidelineId(null);
-        this.engine.setConstructionLines(this.constructionLines);
-        this.saveState();
-        this.showToast('Línea constructiva eliminada.');
-        return;
-      }
-
-      const selected = this.getSelectedMachine();
-
-      // Duplicar activo seleccionado [Ctrl+D]
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
-        e.preventDefault();
-        this.duplicateSelectedMachine();
-        return;
-      }
-
-      // 2. Tecla [Supr] o [Delete]: Elimina máquina y regresa al panel
-      if ((e.key === 'Delete' || e.key === 'Backspace') && selected) {
-        e.preventDefault();
-        this.removeMachineFromCanvas(selected.id);
-        return;
-      }
-
-      if (!selected) {
-        if (e.key === 'Escape') {
-          if (this.toolMode === 'guideline') {
-            this.guidelineStart = null;
-            this.engine.setTempGuideline(null);
-            this.setToolMode('select');
-            this.showToast('Modo línea guía cancelado.');
-          }
-          this.selectGuideline(null);
-        }
-        return;
-      }
-
-      // Tecla [R]: Rotación incremental rápida a 90° de la máquina
-      if (e.key === 'r' || e.key === 'R') {
-        e.preventDefault();
-        this.setMachineRotation(selected, selected.rotation + 90);
-        this.engine.updateCollisions();
-        this.engine.requestRender();
-        this.updateInspector();
-        this.saveState();
-        return;
-      }
-
-      // Tecla [T]: Rotar orientación del nombre 90° (lado largo vs lado corto)
-      if ((e.key === 't' || e.key === 'T') && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
-          e.preventDefault();
-          this.rotateSelectedMachineLabel(90);
-          return;
-        }
-      }
-
-      // Teclas [Q] / [E]: Micro-rotación de ajuste a ±5°
-      if (e.key === 'q' || e.key === 'Q') {
-        e.preventDefault();
-        this.setMachineRotation(selected, selected.rotation - 5);
-        this.engine.updateCollisions();
-        this.engine.requestRender();
-        this.updateInspector();
-        this.saveState();
-        return;
-      }
-
-      if (e.key === 'e' || e.key === 'E') {
-        e.preventDefault();
-        this.setMachineRotation(selected, selected.rotation + 5);
-        this.engine.updateCollisions();
-        this.engine.requestRender();
-        this.updateInspector();
-        this.saveState();
-        return;
-      }
-
-      // Escape: Deseleccionar
+      // Escape: Deseleccionar todo
       if (e.key === 'Escape') {
-        this.selectMachine(null);
+        if (this.toolMode === 'guideline') {
+          this.guidelineStart = null;
+          this.engine.setTempGuideline(null);
+          this.setToolMode('select');
+        }
+        this.clearSelection();
         this.selectGuideline(null);
       }
     });
@@ -818,7 +843,6 @@ class LayoutPlannerApp {
       }
     });
   }
-
   // ==========================================================
   // CONTROLES DE LA INTERFAZ (Header, Sidebar e Inspector)
   // ==========================================================
@@ -927,6 +951,15 @@ class LayoutPlannerApp {
       e.currentTarget.classList.toggle('active', this.engine.showClearanceZones);
       this.engine.requestRender();
       this.showToast(this.engine.showClearanceZones ? 'Zonas de separación/offset visibles.' : 'Zonas de separación/offset ocultas.');
+    });
+
+    // Alternar Snap Magnético a Muros / Paredes
+    this.btnToggleWallSnap?.addEventListener('click', () => {
+      this.toggleWallSnap();
+    });
+
+    this.statusSnapIndicator?.addEventListener('click', () => {
+      this.toggleWallSnap();
     });
 
     // Herramienta Línea Constructiva (Referencia)
@@ -1232,9 +1265,13 @@ class LayoutPlannerApp {
 
     // Botón Retirar del taller (Regresar al sidebar)
     this.btnInspRemove?.addEventListener('click', () => {
-      const selected = this.getSelectedMachine();
-      if (selected) {
-        this.removeMachineFromCanvas(selected.id);
+      if (this.selectedMachineIds.size > 1) {
+        this.removeSelectedMachines();
+      } else {
+        const selected = this.getSelectedMachine();
+        if (selected) {
+          this.removeMachineFromCanvas(selected.id);
+        }
       }
     });
   }
@@ -1297,10 +1334,34 @@ class LayoutPlannerApp {
   // ==========================================================
   // GESTIÓN DE SELECCIÓN Y RETIRO
   // ==========================================================
-  selectMachine(id) {
-    this.selectedMachineId = id;
-    this.engine.setSelectedMachineId(id);
+  selectMachine(id, multi = false) {
+    if (multi) {
+      if (id) {
+        if (this.selectedMachineIds.has(id)) {
+          this.selectedMachineIds.delete(id);
+        } else {
+          this.selectedMachineIds.add(id);
+        }
+      }
+    } else {
+      this.selectedMachineIds.clear();
+      if (id) {
+        this.selectedMachineIds.add(id);
+      }
+    }
+
+    this.selectedMachineId = this.selectedMachineIds.size > 0 ? Array.from(this.selectedMachineIds)[0] : null;
+    this.engine.setSelectedMachineIds(Array.from(this.selectedMachineIds));
     this.updateInspector();
+    this.engine.requestRender();
+  }
+
+  clearSelection() {
+    this.selectedMachineIds.clear();
+    this.selectedMachineId = null;
+    this.engine.setSelectedMachineIds([]);
+    this.updateInspector();
+    this.engine.requestRender();
   }
 
   getSelectedMachine() {
@@ -1308,7 +1369,63 @@ class LayoutPlannerApp {
     return this.machines.find(m => m.id === this.selectedMachineId) || null;
   }
 
+  getSelectedMachines() {
+    return this.machines.filter(m => this.selectedMachineIds.has(m.id) && m.isPlaced);
+  }
+
+  removeSelectedMachines() {
+    const ids = Array.from(this.selectedMachineIds);
+    if (ids.length === 0) return;
+
+    for (const id of ids) {
+      const machine = this.machines.find(m => m.id === id);
+      if (machine && machine.isZone) {
+        const children = this.machines.filter(m => m.parentId === machine.id);
+        children.forEach(c => { c.parentId = null; });
+      }
+    }
+
+    this.machines = this.machines.filter(m => !this.selectedMachineIds.has(m.id));
+    this.showToast(`${ids.length} elementos retirados del taller.`);
+    this.clearSelection();
+    this.updateAllUI();
+    this.saveState();
+  }
+
   removeMachineFromCanvas(id) {
+  /**
+   * Registra las posiciones iniciales de todas las entidades seleccionadas y sus hijos
+   * para permitir el desplazamiento sincronizado en bloque ("desplazar de golpe").
+   */
+  recordGroupDragStart() {
+    const itemsMap = new Map();
+
+    for (const id of this.selectedMachineIds) {
+      const m = this.machines.find(item => item.id === id && item.isPlaced);
+      if (m) {
+        if (!itemsMap.has(m.id)) {
+          itemsMap.set(m.id, { id: m.id, startX: m.x, startY: m.y });
+        }
+        // Si la entidad seleccionada es una zona, incluir a todos sus hijos
+        if (m.isZone) {
+          const children = this.machines.filter(c => c.parentId === m.id && c.isPlaced);
+          for (const c of children) {
+            if (!itemsMap.has(c.id)) {
+              itemsMap.set(c.id, { id: c.id, startX: c.x, startY: c.y });
+            }
+          }
+        }
+      }
+    }
+
+    this.groupDragStartPositions = Array.from(itemsMap.values());
+    const primary = this.getSelectedMachine();
+    if (primary) {
+      this.machineStartPos = { x: primary.x, y: primary.y, rotation: primary.rotation };
+    }
+  }
+
+
     const machine = this.machines.find(m => m.id === id);
     if (!machine) return;
 
@@ -1331,8 +1448,38 @@ class LayoutPlannerApp {
   // ==========================================================
   // ACTUALIZACIÓN DE INTERFAZ Y SIDEBAR
   // ==========================================================
+  toggleWallSnap(forceState) {
+    this.wallSnapEnabled = typeof forceState === 'boolean' ? forceState : !this.wallSnapEnabled;
+    try {
+      localStorage.setItem('factoria_wall_snap_enabled', String(this.wallSnapEnabled));
+    } catch (e) {}
+    this.updateSnapUI();
+    this.showToast(this.wallSnapEnabled ? '🧲 Snap a muros: ACTIVADO' : '🧲 Snap a muros: DESACTIVADO (libre orientación)');
+  }
+
+  updateSnapUI() {
+    if (this.btnToggleWallSnap) {
+      this.btnToggleWallSnap.classList.toggle('active', this.wallSnapEnabled);
+      this.btnToggleWallSnap.title = this.wallSnapEnabled
+        ? 'Snap Magnético a Muros: ACTIVADO (Clic o F3/S para desactivar)'
+        : 'Snap Magnético a Muros: DESACTIVADO (Clic o F3/S para activar)';
+    }
+    if (this.statusSnapIndicator) {
+      if (this.wallSnapEnabled) {
+        this.statusSnapIndicator.textContent = '🧲 Snap Muros: ON';
+        this.statusSnapIndicator.className = 'legend-chip snap-badge active-snap';
+        this.statusSnapIndicator.title = 'Snap Magnético a Muros: ACTIVADO (Clic o F3/S para desactivar)';
+      } else {
+        this.statusSnapIndicator.textContent = '🧲 Snap Muros: OFF';
+        this.statusSnapIndicator.className = 'legend-chip snap-badge disabled-snap';
+        this.statusSnapIndicator.title = 'Snap Magnético a Muros: DESACTIVADO (Clic o F3/S para activar)';
+      }
+    }
+  }
+
   updateAllUI() {
     this.updateCounters();
+    this.updateSnapUI();
     this.renderSidebarList();
     this.updateInspector();
     this.engine.setMachines(this.machines);
@@ -1561,13 +1708,49 @@ class LayoutPlannerApp {
   }
 
   updateInspector() {
-    const selected = this.getSelectedMachine();
-    if (!selected || !this.inspectorPanel) {
+    if (this.selectedMachineIds.size === 0 || !this.inspectorPanel) {
       this.inspectorPanel?.classList.add('hidden');
       return;
     }
 
     this.inspectorPanel.classList.remove('hidden');
+
+    const singleControls = document.getElementById('insp-single-controls');
+    const multiBanner = document.getElementById('insp-multi-banner');
+
+    if (this.selectedMachineIds.size > 1) {
+      // Modo Selección Múltiple
+      if (singleControls) singleControls.style.display = 'none';
+      if (multiBanner) multiBanner.style.display = 'block';
+
+      if (this.inspName) this.inspName.textContent = 'Selección Múltiple';
+      if (this.inspDims) {
+        const count = this.selectedMachineIds.size;
+        const zonesCount = this.machines.filter(m => this.selectedMachineIds.has(m.id) && m.isZone).length;
+        const machCount = count - zonesCount;
+        let desc = `${count} elementos seleccionados`;
+        if (zonesCount > 0 && machCount > 0) {
+          desc += ` (${zonesCount} zonas, ${machCount} objetos)`;
+        }
+        this.inspDims.textContent = desc;
+      }
+      if (this.inspZoneTag) this.inspZoneTag.style.display = 'none';
+      if (this.btnDetachZone) this.btnDetachZone.style.display = 'none';
+      if (this.btnInspSnap) this.btnInspSnap.style.display = 'none';
+      if (this.btnInspDuplicate) this.btnInspDuplicate.textContent = '📋 Duplicar Selección';
+      if (this.btnInspRemove) this.btnInspRemove.textContent = '✕ Retirar Seleccionados';
+      return;
+    }
+
+    // Modo Elemento Individual
+    if (singleControls) singleControls.style.display = 'block';
+    if (multiBanner) multiBanner.style.display = 'none';
+    if (this.btnInspSnap) this.btnInspSnap.style.display = 'flex';
+    if (this.btnInspDuplicate) this.btnInspDuplicate.textContent = '📋 Duplicar';
+    if (this.btnInspRemove) this.btnInspRemove.textContent = '✕ Retirar del Taller';
+
+    const selected = this.getSelectedMachine();
+    if (!selected) return;
 
     if (this.inspName) this.inspName.textContent = selected.name;
     if (this.inspDims) {

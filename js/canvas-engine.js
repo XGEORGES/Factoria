@@ -41,6 +41,7 @@ export class CanvasEngine {
     // Estado de entidades
     this.machines = [];
     this.selectedMachineId = null;
+    this.selectedMachineIds = new Set();
     this.hoveredEdge = null; // { machineId, edgeIndex }
     this.snapGuide = null; // Guía visual de snap activo
 
@@ -101,7 +102,18 @@ export class CanvasEngine {
 
   setSelectedMachineId(id) {
     this.selectedMachineId = id;
+    this.selectedMachineIds = new Set(id ? [id] : []);
     this.requestRender();
+  }
+
+  setSelectedMachineIds(ids = []) {
+    this.selectedMachineIds = new Set(ids);
+    this.selectedMachineId = ids.length > 0 ? ids[0] : null;
+    this.requestRender();
+  }
+
+  isMachineSelected(id) {
+    return this.selectedMachineIds.has(id);
   }
 
   setSnapGuide(guide) {
@@ -283,11 +295,18 @@ export class CanvasEngine {
     // 4. Máquinas colocadas
     this.drawMachines();
 
-    // 5. Gizmo y resaltado de la máquina seleccionada
-    if (this.selectedMachineId) {
+    // 5. Gizmo y resaltado de máquinas seleccionadas
+    if (this.selectedMachineIds.size === 1) {
       const selected = this.machines.find(m => m.id === this.selectedMachineId && m.isPlaced);
       if (selected) {
         this.drawMachineGizmo(selected);
+      }
+    } else if (this.selectedMachineIds.size > 1) {
+      for (const id of this.selectedMachineIds) {
+        const selected = this.machines.find(m => m.id === id && m.isPlaced);
+        if (selected) {
+          this.drawMultiSelectHighlight(selected);
+        }
       }
     }
 
@@ -553,14 +572,14 @@ export class CanvasEngine {
 
     // 1. Capa de Fondo: Zonas y Recintos
     for (const z of zones) {
-      const isSelected = z.id === this.selectedMachineId;
+      const isSelected = this.isMachineSelected(z.id);
       const isColliding = this.collisionMap.get(z.id) === true;
       this.drawSingleZone(z, isSelected, isColliding);
     }
 
     // 2. Capa Superior: Máquinas, Mesas y Mobiliario
     for (const m of nonZones) {
-      const isSelected = m.id === this.selectedMachineId;
+      const isSelected = this.isMachineSelected(m.id);
       const isColliding = this.collisionMap.get(m.id) === true;
       this.drawSingleMachine(m, isSelected, isColliding);
     }
@@ -758,66 +777,10 @@ export class CanvasEngine {
   }
 
   /**
-   * Dibuja los textos y títulos de una Zona con orientación paramétrica
+   * Dibuja los textos y títulos de una Zona con el mismo formato, autoajuste y escalado de zoom que los objetos
    */
   drawZoneLabels(z, centroid, isColliding) {
-    const ctx = this.ctx;
-    const labelRot = ((z.labelRotation || 0) % 360 + 360) % 360;
-    const isPerpendicular = (labelRot % 180 !== 0);
-
-    const screenW = z.width * this.scale;
-    const screenH = z.height * this.scale;
-    const availWidth = (isPerpendicular ? screenH : screenW) * 0.90;
-    const availHeight = (isPerpendicular ? screenW : screenH) * 0.90;
-
-    if (availWidth < 20 || availHeight < 15) return;
-
-    ctx.save();
-    ctx.translate(centroid.x, centroid.y);
-    ctx.rotate(-((z.rotation + labelRot) * Math.PI) / 180);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    const areaM2 = (z.width * z.height).toFixed(2);
-    const dimsText = `${z.width.toFixed(2)} x ${z.height.toFixed(2)} m · ${areaM2} m²`;
-
-    const titleSize = Math.min(22, Math.max(11, Math.floor(this.scale * 0.55)));
-    const subSize = Math.max(9, Math.floor(titleSize * 0.72));
-
-    // Cartela técnica semitransparente para legibilidad
-    const titleText = (z.name || 'ZONA').toUpperCase();
-    ctx.font = `bold ${titleSize}px sans-serif`;
-    const titleWidth = ctx.measureText(titleText).width;
-    ctx.font = `${subSize}px monospace`;
-    const subWidth = ctx.measureText(dimsText).width;
-    const bannerW = Math.max(titleWidth, subWidth) + 16;
-    const bannerH = titleSize + subSize + 12;
-
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
-    ctx.strokeStyle = isColliding ? '#ef4444' : (z.color || '#6366f1');
-    ctx.lineWidth = 1;
-
-    if (ctx.roundRect) {
-      ctx.beginPath();
-      ctx.roundRect(-bannerW / 2, -bannerH / 2, bannerW, bannerH, 4);
-      ctx.fill();
-      ctx.stroke();
-    } else {
-      ctx.fillRect(-bannerW / 2, -bannerH / 2, bannerW, bannerH);
-      ctx.strokeRect(-bannerW / 2, -bannerH / 2, bannerW, bannerH);
-    }
-
-    // Nombre de la zona
-    ctx.fillStyle = isColliding ? '#fca5a5' : '#ffffff';
-    ctx.font = `bold ${titleSize}px sans-serif`;
-    ctx.fillText(titleText, 0, -subSize * 0.55);
-
-    // Dimensiones y área en m²
-    ctx.fillStyle = isColliding ? '#f87171' : '#a5b4fc';
-    ctx.font = `bold ${subSize}px monospace`;
-    ctx.fillText(dimsText, 0, titleSize * 0.55);
-
-    ctx.restore();
+    this.drawEntityLabels(z, centroid, isColliding, true);
   }
 
   /**
@@ -1028,17 +991,21 @@ export class CanvasEngine {
     this.drawMachineLabels(m, centroid, isColliding);
   }
 
-  /**
-   * Dibuja los textos y etiquetas con auto-ajuste inteligente multilínea (Opción 1)
-   * Se adapta al ancho/alto disponible según la orientación rotada (0°, 90°, 180°, 270°)
-   */
   drawMachineLabels(m, centroid, isColliding) {
+    this.drawEntityLabels(m, centroid, isColliding, false);
+  }
+
+  /**
+   * Dibuja los textos y etiquetas con auto-ajuste inteligente multilínea y escalado de zoom dinámico
+   * Compartido idénticamente entre máquinas, mobiliario y zonas/recintos contenedores.
+   */
+  drawEntityLabels(entity, centroid, isColliding, isZone = false) {
     const ctx = this.ctx;
-    const labelRot = ((m.labelRotation || 0) % 360 + 360) % 360;
+    const labelRot = ((entity.labelRotation || 0) % 360 + 360) % 360;
     const isPerpendicular = (labelRot % 180 !== 0); // 90° o 270°
 
-    const screenW = m.width * this.scale;
-    const screenH = m.height * this.scale;
+    const screenW = entity.width * this.scale;
+    const screenH = entity.height * this.scale;
 
     // Espacio útil disponible según la orientación de la etiqueta (con margen de seguridad del 12%)
     const availWidth = (isPerpendicular ? screenH : screenW) * 0.88;
@@ -1051,14 +1018,20 @@ export class CanvasEngine {
 
     ctx.save();
     ctx.translate(centroid.x, centroid.y);
-    ctx.rotate(-((m.rotation + labelRot) * Math.PI) / 180);
+    ctx.rotate(-((entity.rotation + labelRot) * Math.PI) / 180);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    const rawWords = (m.name || '').trim().split(/\s+/).filter(Boolean);
-    const dimsText = `${m.width.toFixed(2)} x ${m.height.toFixed(2)} m`;
+    const rawWords = (entity.name || '').trim().split(/\s+/).filter(Boolean);
 
-    // Rango de tamaño de fuente
+    // Texto de dimensiones métricas
+    const areaM2 = (entity.width * entity.height).toFixed(2);
+    const fullDimsText = isZone
+      ? `${entity.width.toFixed(2)} x ${entity.height.toFixed(2)} m · ${areaM2} m²`
+      : `${entity.width.toFixed(2)} x ${entity.height.toFixed(2)} m`;
+    const shortDimsText = `${entity.width.toFixed(2)} x ${entity.height.toFixed(2)} m`;
+
+    // Rango de tamaño de fuente: escala dinámicamente con el nivel de zoom idéntico en objetos y zonas
     const maxFs = Math.max(8.5, Math.min(13.5, Math.round(this.scale * 0.42)));
     const minFs = 6.5;
 
@@ -1105,8 +1078,17 @@ export class CanvasEngine {
       // Medir altura total requerida
       const dimFs = Math.max(5.5, Math.round(fs * 0.78));
       ctx.font = `${dimFs}px monospace`;
-      const dimWidth = ctx.measureText(dimsText).width;
-      const canFitDims = (dimWidth <= availWidth);
+      
+      let dimsToUse = fullDimsText;
+      let dimWidth = ctx.measureText(dimsToUse).width;
+      let canFitDims = (dimWidth <= availWidth);
+
+      // Si las dimensiones con m² no caben en una zona, probar versión compacta sin m²
+      if (!canFitDims && isZone) {
+        dimsToUse = shortDimsText;
+        dimWidth = ctx.measureText(dimsToUse).width;
+        canFitDims = (dimWidth <= availWidth);
+      }
 
       const nameLineH = fs * 1.15;
       const dimLineH = dimFs * 1.15;
@@ -1120,6 +1102,7 @@ export class CanvasEngine {
           dimFs,
           lines,
           showDims: canFitDims,
+          dimsText: dimsToUse,
           nameLineH,
           dimLineH,
           gap,
@@ -1133,6 +1116,7 @@ export class CanvasEngine {
           dimFs,
           lines,
           showDims: false,
+          dimsText: dimsToUse,
           nameLineH,
           dimLineH: 0,
           gap: 0,
@@ -1165,6 +1149,7 @@ export class CanvasEngine {
         dimFs: 5.5,
         lines: lines.slice(0, 3), // Límite de 3 filas
         showDims: false,
+        dimsText: shortDimsText,
         nameLineH,
         dimLineH: 0,
         gap: 0,
@@ -1172,9 +1157,12 @@ export class CanvasEngine {
       };
     }
 
-    // Renderizar líneas centradas vertical y horizontalmente
-    const { fs, dimFs, lines, showDims, nameLineH, dimLineH, gap, totalH } = bestConfig;
+    // Renderizar líneas centradas vertical y horizontalmente con sombra sutil para contraste óptimo
+    const { fs, dimFs, lines, showDims, dimsText, nameLineH, dimLineH, gap, totalH } = bestConfig;
     let curY = -totalH / 2 + nameLineH / 2;
+
+    ctx.shadowColor = 'rgba(15, 23, 42, 0.75)';
+    ctx.shadowBlur = 3;
 
     ctx.fillStyle = isColliding ? '#fecaca' : '#f8fafc';
     ctx.font = `600 ${fs}px sans-serif`;
@@ -1186,7 +1174,7 @@ export class CanvasEngine {
 
     if (showDims) {
       curY += gap - nameLineH / 2 + dimLineH / 2;
-      ctx.fillStyle = '#94a3b8';
+      ctx.fillStyle = isColliding ? '#f87171' : '#94a3b8';
       ctx.font = `${dimFs}px monospace`;
       ctx.fillText(dimsText, 0, curY);
     }
@@ -1233,6 +1221,38 @@ export class CanvasEngine {
     ctx.strokeStyle = 'rgba(0, 255, 0, 0.4)';
     ctx.lineWidth = 1;
     ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * Dibuja el marco de selección múltiple sobre una entidad (máquina o zona)
+   */
+  drawMultiSelectHighlight(m) {
+    const ctx = this.ctx;
+    const corners = getMachineCorners(m);
+    const screenCorners = corners.map(c => this.worldToScreen(c.x, c.y));
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(screenCorners[0].x, screenCorners[0].y);
+    for (let i = 1; i < screenCorners.length; i++) {
+      ctx.lineTo(screenCorners[i].x, screenCorners[i].y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([6, 4]);
+    ctx.stroke();
+
+    // Nodos en las 4 esquinas
+    ctx.fillStyle = '#38bdf8';
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    for (const sc of screenCorners) {
+      ctx.fillRect(sc.x - 3.5, sc.y - 3.5, 7, 7);
+      ctx.strokeRect(sc.x - 3.5, sc.y - 3.5, 7, 7);
+    }
     ctx.restore();
   }
 

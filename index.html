@@ -97,6 +97,9 @@
           <button class="cad-tool-btn active" id="btn-toggle-clearance" title="Alternar Zonas de Seguridad / Offset entre Máquinas">
             🛡
           </button>
+          <button class="cad-tool-btn active" id="btn-toggle-wall-snap" title="Snap Magnético a Muros (Clic para alternar)">
+            🧲
+          </button>
           <div class="cad-tool-sep"></div>
           <!-- Herramientas de Líneas Constructivas (Referencia) -->
           <button class="cad-tool-btn" id="btn-tool-guideline" title="Línea Constructiva / Guía de Referencia (Clic inicio, clic fin)">
@@ -127,6 +130,13 @@
           </div>
 
           <div class="inspector-body">
+            <!-- Banner de Selección Múltiple -->
+            <div id="insp-multi-banner" style="display: none; padding: 10px; background: rgba(56, 189, 248, 0.1); border: 1px dashed rgba(56, 189, 248, 0.4); border-radius: 6px; text-align: center; margin-bottom: 8px;">
+              <span style="font-weight: 600; color: #38bdf8; font-size: 12px;">Desplazamiento en Bloque Activo</span>
+              <p style="font-size: 11px; color: #94a3b8; margin: 4px 0 0;">Haz clic y arrastra cualquiera de los elementos seleccionados en el lienzo para moverlos todos juntos de golpe.</p>
+            </div>
+
+            <div id="insp-single-controls">
             <!-- Posición Métrica (X, Y) -->
             <div class="insp-group">
               <label>Posición Centroide (m)</label>
@@ -155,9 +165,9 @@
               <!-- Botones de Rotación Rápida -->
               <div class="rot-quick-btns">
                 <button class="btn-rot-sub" data-rot-inc="-90" title="Girar -90°">-90°</button>
-                <button class="btn-rot-sub" data-rot-inc="90" title="Girar +90° (Tecla R)">+90° [R]</button>
-                <button class="btn-rot-sub" data-rot-inc="-5" title="Ajuste fino -5° (Tecla Q)">-5° [Q]</button>
-                <button class="btn-rot-sub" data-rot-inc="5" title="Ajuste fino +5° (Tecla E)">+5° [E]</button>
+                <button class="btn-rot-sub" data-rot-inc="90" title="Girar +90°">+90°</button>
+                <button class="btn-rot-sub" data-rot-inc="-5" title="Ajuste fino -5°">-5°</button>
+                <button class="btn-rot-sub" data-rot-inc="5" title="Ajuste fino +5°">+5°</button>
               </div>
             </div>
 
@@ -259,17 +269,18 @@
                 <button type="button" class="btn-clearance-preset" id="btn-clearance-apply-all" title="Copia el valor frontal a las 4 caras">Copiar a 4</button>
               </div>
             </div>
+            </div> <!-- /#insp-single-controls -->
 
             <!-- Acciones de Máquina -->
             <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 4px;">
               <button class="btn btn-sm btn-primary" id="btn-insp-snap" style="justify-content: center;">
                 🧲 Alinear a Muro más Cercano
               </button>
-              <button class="btn btn-sm" id="btn-insp-duplicate" style="justify-content: center; border-color: rgba(6, 182, 212, 0.4); color: var(--accent-cyan);" title="Duplicar este objeto [Ctrl+D]">
-                📋 Duplicar Activo [Ctrl+D]
+              <button class="btn btn-sm" id="btn-insp-duplicate" style="justify-content: center; border-color: rgba(6, 182, 212, 0.4); color: var(--accent-cyan);" title="Duplicar selección">
+                📋 Duplicar
               </button>
-              <button class="btn btn-sm" id="btn-insp-remove" style="justify-content: center; color: #ef4444; border-color: rgba(239, 68, 68, 0.4);" title="Tecla Supr / Delete">
-                ✕ Retirar del Taller [Supr]
+              <button class="btn btn-sm" id="btn-insp-remove" style="justify-content: center; color: #ef4444; border-color: rgba(239, 68, 68, 0.4);" title="Retirar selección del taller">
+                ✕ Retirar del Taller
               </button>
             </div>
           </div>
@@ -281,15 +292,11 @@
             <span id="cursor-coords">X: 0.00 m | Y: 0.00 m</span>
             <span class="legend-chip operator" title="Arista del operador: Línea verde continua #00FF00">🟢 Operador (#00FF00)</span>
             <span class="legend-chip offset" title="Arista de offset: Línea cian eléctrico #00F0FF que se alinea al muro">🔵 Arista Offset (#00F0FF)</span>
+            <span class="legend-chip snap-badge active-snap" id="status-snap-indicator" title="Clic para alternar Snap Magnético a Muros">🧲 Snap Muros: ON</span>
             <span>Escala: 1.0 m</span>
           </div>
           <div class="status-hints">
-            <span><kbd class="kbd-badge">R</kbd> Rotar 90°</span>
-            <span><kbd class="kbd-badge">T</kbd> Rotar Nombre</span>
-            <span><kbd class="kbd-badge">Q</kbd>/<kbd class="kbd-badge">E</kbd> ±5°</span>
-            <span><kbd class="kbd-badge">Ctrl+D</kbd> Duplicar</span>
-            <span><kbd class="kbd-badge">Supr</kbd> Retirar/Borrar</span>
-            <span><kbd class="kbd-badge">Ctrl</kbd> Sin Snap</span>
+            <span><kbd class="kbd-badge">Ctrl + Clic</kbd> Selección Múltiple</span>
             <span><kbd class="kbd-badge">Espacio</kbd> Pan</span>
           </div>
         </footer>

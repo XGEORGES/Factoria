@@ -720,6 +720,30 @@ body {
   border: 1px solid rgba(0, 240, 255, 0.4);
   box-shadow: 0 0 8px rgba(0, 240, 255, 0.2);
 }
+.legend-chip.snap-badge {
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s ease;
+}
+
+.legend-chip.snap-badge:hover {
+  filter: brightness(1.25);
+  transform: translateY(-1px);
+}
+
+.legend-chip.snap-badge.active-snap {
+  color: #38bdf8;
+  background-color: rgba(56, 189, 248, 0.16);
+  border: 1px solid rgba(56, 189, 248, 0.5);
+  box-shadow: 0 0 6px rgba(56, 189, 248, 0.25);
+}
+
+.legend-chip.snap-badge.disabled-snap {
+  color: #f87171;
+  background-color: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  opacity: 0.9;
+}
 
 .status-hints {
   display: flex;

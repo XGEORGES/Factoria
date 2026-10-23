@@ -50,7 +50,6 @@ class LayoutPlannerApp {
     this.initPointerEvents();
     this.initKeyboardEvents();
     this.initUIControls();
-    this.initInspectorControls();
     this.initCustomObjectModal();
 
     // Intentar restaurar sesión previa si existe
@@ -59,6 +58,7 @@ class LayoutPlannerApp {
       if (saved.catalog && saved.catalog.length > 0) this.catalog = saved.catalog;
       if (saved.machines) this.machines = saved.machines;
       if (saved.constructionLines) this.constructionLines = saved.constructionLines;
+      this.updateInstanceNumbering();
     }
 
     this.engine.setConstructionLines(this.constructionLines);
@@ -225,15 +225,16 @@ class LayoutPlannerApp {
     }
 
     this.machines.push(newInst);
+    this.updateInstanceNumbering();
     this.selectMachine(newInst.id);
     this.engine.updateCollisions();
     this.engine.requestRender();
     this.updateAllUI();
     this.saveState();
     if (parentZone) {
-      this.showToast(`"${name}" colocado dentro de "${parentZone.name}".`);
+      this.showToast(`"${newInst.name}" colocado dentro de "${parentZone.name}".`);
     } else {
-      this.showToast(`"${name}" colocada en (${newInst.x.toFixed(2)}, ${newInst.y.toFixed(2)}) m.`);
+      this.showToast(`"${newInst.name}" colocada en (${newInst.x.toFixed(2)}, ${newInst.y.toFixed(2)}) m.`);
     }
   }
 
@@ -294,6 +295,7 @@ class LayoutPlannerApp {
       }
 
       if (newIds.length > 0) {
+        this.updateInstanceNumbering();
         this.selectedMachineIds = new Set(newIds);
         this.selectedMachineId = newIds[0];
         this.engine.setSelectedMachineIds(newIds);
@@ -376,12 +378,13 @@ class LayoutPlannerApp {
     }
 
     this.machines.push(duplicated);
+    this.updateInstanceNumbering();
     this.selectMachine(duplicated.id);
     this.engine.updateCollisions();
     this.engine.requestRender();
     this.updateAllUI();
     this.saveState();
-    this.showToast(`"${newName}" duplicado con éxito [Ctrl+D].`);
+    this.showToast(`"${duplicated.name}" duplicado con éxito.`);
   }
 
   // ==========================================================
@@ -961,6 +964,7 @@ class LayoutPlannerApp {
         }
         this.selectMachine(null);
         this.selectGuideline(null);
+        this.updateInstanceNumbering();
         this.updateAllUI();
         this.saveState();
         this.showToast('¡Sesión restaurada exitosamente!');
@@ -1435,6 +1439,83 @@ class LayoutPlannerApp {
     return this.machines.filter(m => this.selectedMachineIds.has(m.id) && m.isPlaced);
   }
 
+  /**
+   * Actualiza y sincroniza la numeración secuencial (#1, #2, #3...) de todas las copias
+   * de objetos y zonas en el taller. Si se elimina una copia intermedia (ej. #1), las
+   * copias restantes se re-numeran automáticamente para no dejar huecos (#2 pasa a ser #1).
+   * Se aplica tanto a elementos nuevos como a objetos y zonas ya existentes en el plano.
+   */
+  updateInstanceNumbering() {
+    if (!this.machines || this.machines.length === 0) return;
+
+    // 1. Agrupar entidades colocadas por su identificador de catálogo o nombre base limpio
+    const groups = new Map();
+
+    for (const m of this.machines) {
+      if (!m.isPlaced) continue;
+      const baseName = (m.name || '').replace(/ #\d+$/, '').trim();
+      const key = m.catalogId || baseName;
+      if (!groups.has(key)) {
+        groups.set(key, []);
+      }
+      groups.get(key).push(m);
+    }
+
+    // 2. Procesar cada grupo de entidades
+    for (const [key, items] of groups.entries()) {
+      let catItem = this.catalog.find(c => c.id === key);
+      if (!catItem) {
+        catItem = this.catalog.find(c => c.name.replace(/ #\d+$/, '').trim() === key);
+      }
+
+      // Los activos marcados como únicos nunca llevan número
+      if (catItem?.isUnique) {
+        items.forEach(m => {
+          m.name = catItem.name;
+        });
+        continue;
+      }
+
+      // Nombre base limpio sin sufijo numérico
+      const baseName = catItem 
+        ? catItem.name.replace(/ #\d+$/, '').trim() 
+        : items[0].name.replace(/ #\d+$/, '').trim();
+
+      // Ordenar las instancias existentes preservando el orden numérico previo o de creación
+      items.sort((a, b) => {
+        const matchA = (a.name || '').match(/ #(\d+)$/);
+        const matchB = (b.name || '').match(/ #(\d+)$/);
+        const numA = matchA ? parseInt(matchA[1], 10) : 0;
+        const numB = matchB ? parseInt(matchB[1], 10) : 0;
+        if (numA !== 0 && numB !== 0 && numA !== numB) {
+          return numA - numB;
+        }
+        return this.machines.indexOf(a) - this.machines.indexOf(b);
+      });
+
+      // Si hay más de 1 instancia, o si alguna ya tenía número (#),
+      // o si en el catálogo la cantidad es mayor a 1, todas se numeran secuencialmente (#1, #2, #3...)
+      const hadNumbering = items.some(m => / #\d+$/.test(m.name || '')) || (catItem && (catItem.quantity || 1) > 1);
+
+      if (items.length > 1 || hadNumbering) {
+        items.forEach((m, idx) => {
+          m.name = `${baseName} #${idx + 1}`;
+        });
+      } else {
+        items[0].name = baseName;
+      }
+
+      // Sincronizar cantidad en catálogo con la cantidad de instancias colocadas
+      if (catItem && !catItem.isUnique) {
+        if (catItem.isCustom || catItem.isZone) {
+          catItem.quantity = Math.max(1, items.length);
+        } else {
+          catItem.quantity = Math.max(catItem.quantity || 1, items.length);
+        }
+      }
+    }
+  }
+
   removeSelectedMachines() {
     const ids = Array.from(this.selectedMachineIds);
     if (ids.length === 0) {
@@ -1457,6 +1538,7 @@ class LayoutPlannerApp {
     }
 
     this.machines = this.machines.filter(m => !this.selectedMachineIds.has(m.id));
+    this.updateInstanceNumbering();
     this.showToast(`${ids.length} elementos retirados del taller.`);
     this.clearSelection();
     this.updateAllUI();
@@ -1474,6 +1556,7 @@ class LayoutPlannerApp {
     }
 
     this.machines = this.machines.filter(m => m.id !== id);
+    this.updateInstanceNumbering();
     this.showToast(`"${machine.name}" retirada del taller.`);
 
     if (this.selectedMachineId === id) {
@@ -1728,6 +1811,7 @@ class LayoutPlannerApp {
           }
           this.machines = this.machines.filter(m => m.catalogId !== item.id);
           this.catalog = this.catalog.filter(c => c.id !== item.id);
+          this.updateInstanceNumbering();
           this.updateAllUI();
           this.saveState();
           this.showToast(`"${item.name}" eliminado del catálogo.`);

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Taller CNC 2D Layout Planner (REV FINAL)</title>
-  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/styles.css?v=2.2">
 </head>
 <body>
   <div id="app-container">
@@ -119,6 +119,19 @@
           <button class="cad-tool-btn" id="btn-reset-layout" title="Vaciar taller y regresar todas las máquinas al catálogo" style="color: #ef4444;">
             🗑
           </button>
+        </div>
+
+        <!-- Banner Flotante de Herramienta Medir -->
+        <div id="measure-floating-banner" class="measure-banner hidden">
+          <div class="measure-banner-content">
+            <span class="measure-banner-icon">📐</span>
+            <div class="measure-banner-text">
+              <strong>Herramienta Medir Activa</strong>
+              <p id="measure-banner-hint">Haz clic en el 1er punto y luego en el 2do punto (o arrastra con el ratón).</p>
+            </div>
+            <span id="measure-banner-value" class="measure-banner-value">0.000 m</span>
+            <button type="button" class="btn btn-sm btn-close-measure" id="btn-cancel-measure" title="Terminar medición (Esc)">✕ Salir</button>
+          </div>
         </div>
 
         <!-- Canvas 2D Nativo -->
@@ -283,6 +296,9 @@
               <button class="btn btn-sm btn-primary" id="btn-insp-snap" style="justify-content: center;">
                 🧲 Alinear a Muro más Cercano
               </button>
+              <button class="btn btn-sm" id="btn-insp-measure" style="justify-content: center; color: #fbbf24; border-color: rgba(245, 158, 11, 0.4);" title="Medir distancias en el plano">
+                📐 Medir Distancias
+              </button>
               <button class="btn btn-sm" id="btn-insp-duplicate" style="justify-content: center; border-color: rgba(6, 182, 212, 0.4); color: var(--accent-cyan);" title="Duplicar selección">
                 📋 Duplicar
               </button>
@@ -301,7 +317,7 @@
             <span class="legend-chip offset" title="Arista de offset: Línea cian eléctrico #00F0FF que se alinea al muro">🔵 Arista Offset (#00F0FF)</span>
             <span class="legend-chip snap-badge active-snap" id="status-snap-indicator" title="Clic para alternar Snap Magnético a Muros">🧲 Snap Muros: ON</span>
             <span class="legend-chip snap-badge active-snap" id="status-object-snap-indicator" title="Clic para alternar Snap y Offsets entre Objetos y Zonas">🧩 Snap Objetos: ON</span>
-            <span id="status-measure-badge" class="legend-chip" style="display: none; color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4);">📐 Medida: 0.00 m</span>
+            <span class="legend-chip snap-badge disabled-snap" id="status-tool-measure" title="Clic para activar/desactivar Herramienta Medir">📐 Medir: OFF</span>
             <span>Escala: 1.0 m</span>
           </div>
           <div class="status-hints">
@@ -396,6 +412,6 @@
   </div>
 
   <!-- Scripts ES Modules -->
-  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/app.js?v=2.2"></script>
 </body>
 </html>

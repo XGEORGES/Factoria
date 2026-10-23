@@ -125,7 +125,12 @@ class LayoutPlannerApp {
     this.statusSnapIndicator = document.getElementById('status-snap-indicator');
     this.btnToggleObjectSnap = document.getElementById('btn-toggle-object-snap');
     this.statusObjectSnapIndicator = document.getElementById('status-object-snap-indicator');
-    this.statusMeasureBadge = document.getElementById('status-measure-badge');
+    this.statusToolMeasure = document.getElementById('status-tool-measure');
+    this.measureFloatingBanner = document.getElementById('measure-floating-banner');
+    this.measureBannerValue = document.getElementById('measure-banner-value');
+    this.measureBannerHint = document.getElementById('measure-banner-hint');
+    this.btnCancelMeasure = document.getElementById('btn-cancel-measure');
+    this.btnInspMeasure = document.getElementById('btn-insp-measure');
   }
 
   initCanvasEngine() {
@@ -428,6 +433,8 @@ class LayoutPlannerApp {
 
         if (!this.measureStart) {
           this.measureStart = { x: effectivePt.x, y: effectivePt.y };
+          this.measureStartScreen = { x: sx, y: sy };
+          this.isMeasuringDrag = false;
           this.engine.setMeasurement({
             x1: effectivePt.x,
             y1: effectivePt.y,
@@ -437,10 +444,9 @@ class LayoutPlannerApp {
             snapPoint: null
           });
           const ptDesc = snapPt ? ` (${snapPt.label})` : '';
-          this.showToast(`Punto inicial fijado${ptDesc}. Haz clic en el punto final (mantén Shift para ortogonal).`);
-          if (this.statusMeasureBadge) {
-            this.statusMeasureBadge.style.display = 'inline-flex';
-            this.statusMeasureBadge.textContent = '📐 Medición en curso...';
+          this.showToast(`Punto 1 fijado${ptDesc}. Haz clic o arrastra al punto final.`);
+          if (this.measureBannerHint) {
+            this.measureBannerHint.textContent = `Punto 1 fijado${ptDesc}. Mueve y haz clic (o suelta) en el 2do punto.`;
           }
         } else {
           let endX = effectivePt.x;
@@ -468,12 +474,15 @@ class LayoutPlannerApp {
           });
 
           const ptDesc = snapPt ? ` (${snapPt.label})` : '';
-          this.showToast(`Longitud medida: ${lengthM.toFixed(3)} m (dX: ${dxM.toFixed(2)} m, dY: ${dyM.toFixed(2)} m)${ptDesc}. Clic para medir otra o Esc para salir.`);
-          if (this.statusMeasureBadge) {
-            this.statusMeasureBadge.style.display = 'inline-flex';
-            this.statusMeasureBadge.textContent = `📐 Distancia: ${lengthM.toFixed(3)} m`;
+          this.showToast(`Longitud medida: ${lengthM.toFixed(3)} m (dX: ${dxM.toFixed(2)} m, dY: ${dyM.toFixed(2)} m)${ptDesc}. Clic para medir otra o Salir.`);
+          if (this.measureBannerValue) {
+            this.measureBannerValue.textContent = `${lengthM.toFixed(3)} m`;
+          }
+          if (this.measureBannerHint) {
+            this.measureBannerHint.textContent = `Longitud fijada: ${lengthM.toFixed(3)} m (dX: ${dxM.toFixed(2)} m, dY: ${dyM.toFixed(2)} m)${ptDesc}. Clic para medir otra o Salir.`;
           }
           this.measureStart = null;
+          this.isMeasuringDrag = false;
         }
         return;
       }
@@ -657,6 +666,9 @@ class LayoutPlannerApp {
         const snapPt = findSnapPointForMeasure(worldPt.x, worldPt.y, this.machines, this.constructionLines, snapRadiusM);
 
         if (this.measureStart) {
+          if (this.measureStartScreen && Math.hypot(sx - this.measureStartScreen.x, sy - this.measureStartScreen.y) > 8) {
+            this.isMeasuringDrag = true;
+          }
           let endX = snapPt ? snapPt.x : worldPt.x;
           let endY = snapPt ? snapPt.y : worldPt.y;
           if (e.shiftKey) {
@@ -677,9 +689,11 @@ class LayoutPlannerApp {
             isFinished: false,
             snapPoint: snapPt
           });
-          if (this.statusMeasureBadge) {
-            this.statusMeasureBadge.style.display = 'inline-flex';
-            this.statusMeasureBadge.textContent = `📐 ${lengthM.toFixed(2)} m (dX: ${dxM.toFixed(2)}m, dY: ${dyM.toFixed(2)}m)`;
+          if (this.measureBannerValue) {
+            this.measureBannerValue.textContent = `${lengthM.toFixed(3)} m`;
+          }
+          if (this.measureBannerHint) {
+            this.measureBannerHint.textContent = `Midiendo... ${lengthM.toFixed(3)} m (dX: ${dxM.toFixed(2)}m, dY: ${dyM.toFixed(2)}m)`;
           }
         } else if (this.engine.activeMeasurement?.isFinished) {
           this.engine.setMeasurement({
@@ -911,6 +925,37 @@ class LayoutPlannerApp {
     });
 
     const endPointerDrag = () => {
+      // Si el usuario arrastró con el botón presionado en Modo Medir, finalizar la medición
+      if (this.toolMode === 'measure' && this.isMeasuringDrag && this.measureStart) {
+        const endPt = this.engine.activeMeasurement ? { x: this.engine.activeMeasurement.x2, y: this.engine.activeMeasurement.y2 } : this.measureStart;
+        const lengthM = Math.hypot(endPt.x - this.measureStart.x, endPt.y - this.measureStart.y);
+        const dxM = Math.abs(endPt.x - this.measureStart.x);
+        const dyM = Math.abs(endPt.y - this.measureStart.y);
+
+        this.engine.setMeasurement({
+          x1: this.measureStart.x,
+          y1: this.measureStart.y,
+          x2: endPt.x,
+          y2: endPt.y,
+          isFinished: true,
+          length: lengthM,
+          dx: dxM,
+          dy: dyM,
+          snapPoint: null
+        });
+
+        if (this.measureBannerValue) {
+          this.measureBannerValue.textContent = `${lengthM.toFixed(3)} m`;
+        }
+        if (this.measureBannerHint) {
+          this.measureBannerHint.textContent = `Longitud fijada: ${lengthM.toFixed(3)} m (dX: ${dxM.toFixed(2)} m, dY: ${dyM.toFixed(2)} m). Haz clic para medir otra o Salir.`;
+        }
+        this.showToast(`📏 Longitud: ${lengthM.toFixed(3)} m (dX: ${dxM.toFixed(2)} m, dY: ${dyM.toFixed(2)} m).`);
+        this.measureStart = null;
+        this.isMeasuringDrag = false;
+        return;
+      }
+
       // Si se hizo un clic simple sin arrastre sobre un elemento que pertenecía a un grupo,
       // colapsar la selección solo a este elemento
       if (this.pendingSingleSelectId && !this.hasMovedDrag) {
@@ -1173,14 +1218,18 @@ class LayoutPlannerApp {
       this.toggleObjectSnap();
     });
 
-    // Herramienta Medir (Punto a Punto)
-    document.getElementById('btn-tool-measure')?.addEventListener('click', () => {
+    // Herramienta Medir (Punto a Punto / Arrastre)
+    const toggleMeasure = () => {
       if (this.toolMode === 'measure') {
         this.setToolMode('select');
       } else {
         this.setToolMode('measure');
       }
-    });
+    };
+    document.getElementById('btn-tool-measure')?.addEventListener('click', toggleMeasure);
+    this.statusToolMeasure?.addEventListener('click', toggleMeasure);
+    this.btnCancelMeasure?.addEventListener('click', () => this.setToolMode('select'));
+    this.btnInspMeasure?.addEventListener('click', toggleMeasure);
 
     // Herramienta Línea Constructiva (Referencia)
     document.getElementById('btn-tool-guideline')?.addEventListener('click', () => {
@@ -2195,10 +2244,7 @@ class LayoutPlannerApp {
     this.guidelineStart = null;
     this.engine.setTempGuideline(null);
     this.measureStart = null;
-    if (mode !== 'measure') {
-      this.engine.setMeasurement(null);
-      if (this.statusMeasureBadge) this.statusMeasureBadge.style.display = 'none';
-    }
+    this.isMeasuringDrag = false;
 
     const btnGuideline = document.getElementById('btn-tool-guideline');
     if (btnGuideline) btnGuideline.classList.toggle('active', mode === 'guideline');
@@ -2206,22 +2252,39 @@ class LayoutPlannerApp {
     const btnMeasure = document.getElementById('btn-tool-measure');
     if (btnMeasure) btnMeasure.classList.toggle('active', mode === 'measure');
 
-    if (mode === 'guideline') {
+    if (mode === 'measure') {
       this.canvas.style.cursor = 'crosshair';
       this.selectMachine(null);
       this.selectGuideline(null);
-      this.showToast('Modo Línea Constructiva: Haz clic en el canvas para trazar una guía.');
-    } else if (mode === 'measure') {
-      this.canvas.style.cursor = 'crosshair';
-      this.selectMachine(null);
-      this.selectGuideline(null);
-      if (this.statusMeasureBadge) {
-        this.statusMeasureBadge.style.display = 'inline-flex';
-        this.statusMeasureBadge.textContent = '📐 Medir: Clic punto inicial';
+      this.measureFloatingBanner?.classList.remove('hidden');
+      if (this.measureBannerValue) this.measureBannerValue.textContent = '0.000 m';
+      if (this.measureBannerHint) this.measureBannerHint.textContent = 'Haz clic en el 1er punto y luego en el 2do punto (o arrastra con el ratón).';
+      if (this.statusToolMeasure) {
+        this.statusToolMeasure.textContent = '📐 Medir: ACTIVO';
+        this.statusToolMeasure.className = 'legend-chip snap-badge active-snap';
+        this.statusToolMeasure.style.color = '#fbbf24';
+        this.statusToolMeasure.style.borderColor = '#f59e0b';
+        this.statusToolMeasure.style.backgroundColor = 'rgba(245, 158, 11, 0.2)';
       }
-      this.showToast('Herramienta Medir: Haz clic en el punto inicial (se imanta a esquinas y muros).');
+      this.showToast('Herramienta Medir activa: Haz clic o arrastra entre 2 puntos.');
     } else {
-      this.canvas.style.cursor = 'default';
+      this.measureFloatingBanner?.classList.add('hidden');
+      this.engine.setMeasurement(null);
+      if (this.statusToolMeasure) {
+        this.statusToolMeasure.textContent = '📐 Medir: OFF';
+        this.statusToolMeasure.className = 'legend-chip snap-badge disabled-snap';
+        this.statusToolMeasure.style.color = '';
+        this.statusToolMeasure.style.borderColor = '';
+        this.statusToolMeasure.style.backgroundColor = '';
+      }
+      if (mode === 'guideline') {
+        this.canvas.style.cursor = 'crosshair';
+        this.selectMachine(null);
+        this.selectGuideline(null);
+        this.showToast('Modo Línea Constructiva: Haz clic en el canvas para trazar una guía.');
+      } else {
+        this.canvas.style.cursor = 'default';
+      }
     }
   }
 

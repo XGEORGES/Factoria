@@ -137,6 +137,11 @@ class LayoutPlannerApp {
 
     const placedCount = this.machines.filter(m => m.catalogId === catalogId && m.isPlaced).length;
 
+    if (catItem.isUnique && placedCount >= 1) {
+      this.showToast(`"${catItem.name}" es un activo único y ya se encuentra ubicado en el taller.`);
+      return;
+    }
+
     // Si ya se colocaron todas las unidades asignadas, incrementamos automáticamente la cantidad
     if (placedCount >= (catItem.quantity || 1)) {
       catItem.quantity = placedCount + 1;
@@ -202,6 +207,10 @@ class LayoutPlannerApp {
 
     const catId = selected.catalogId || selected.id;
     let catItem = this.catalog.find(c => c.id === catId);
+    if (catItem?.isUnique) {
+      this.showToast(`"${selected.name}" es un activo único y no puede duplicarse.`);
+      return;
+    }
     if (!catItem) {
       catItem = {
         id: catId,
@@ -476,7 +485,7 @@ class LayoutPlannerApp {
         let angleDeg = (mouseAngleRad * 180 / Math.PI + 360) % 360;
 
         // Ajustamos respecto a la posición superior (+Y local)
-        let finalAngle = (90 - angleDeg + 360) % 360;
+        let finalAngle = (angleDeg - 90 + 360) % 360;
         selected.rotation = Number(finalAngle.toFixed(1));
 
         this.engine.updateCollisions();
@@ -814,6 +823,11 @@ class LayoutPlannerApp {
       }
       if (confirm('¿Deseas retirar todas las máquinas y vaciar el taller?')) {
         this.machines = [];
+        this.catalog.forEach(c => {
+          if (!c.isCustom) {
+            c.quantity = 1;
+          }
+        });
         this.selectMachine(null);
         this.updateAllUI();
         this.saveState();
@@ -1112,7 +1126,7 @@ class LayoutPlannerApp {
     if (this.totalTargetCounter) this.totalTargetCounter.textContent = totalTarget;
     if (this.unplacedCounter) this.unplacedCounter.textContent = pending;
 
-    const catBadge = document.querySelector('#sidebar-catalog .sidebar-title span:last-child');
+    const catBadge = document.getElementById('sidebar-placed-badge') || document.querySelector('#sidebar-catalog .sidebar-title span.badge');
     if (catBadge) catBadge.textContent = `${placed} en planta`;
 
     const brandSub = document.getElementById('brand-subtitle') || document.querySelector('.brand-title span');
@@ -1170,11 +1184,14 @@ class LayoutPlannerApp {
         <div class="qty-control-row">
           <div class="qty-control-left">
             <span class="qty-label">Cantidad:</span>
-            <div class="qty-stepper">
-              <button type="button" class="btn-qty btn-qty-minus" data-id="${item.id}" title="Reducir cantidad">−</button>
-              <input type="number" class="input-qty" min="1" max="99" value="${targetQty}" data-id="${item.id}">
-              <button type="button" class="btn-qty btn-qty-plus" data-id="${item.id}" title="Aumentar cantidad">+</button>
-            </div>
+            ${item.isUnique
+              ? `<span style="font-size: 10px; color: var(--text-muted); font-family: var(--font-mono); font-weight: 600;">1 (Único)</span>`
+              : `<div class="qty-stepper">
+                  <button type="button" class="btn-qty btn-qty-minus" data-id="${item.id}" title="Reducir cantidad">−</button>
+                  <input type="number" class="input-qty" min="1" max="99" value="${targetQty}" data-id="${item.id}">
+                  <button type="button" class="btn-qty btn-qty-plus" data-id="${item.id}" title="Aumentar cantidad">+</button>
+                </div>`
+            }
           </div>
           <span class="qty-status-badge ${isDone ? 'done' : ''}">
             ${isDone ? '✓ ' : ''}${placedCount} / ${targetQty} en planta
@@ -1183,8 +1200,8 @@ class LayoutPlannerApp {
 
         <div style="display: flex; gap: 6px; align-self: flex-end; align-items: center; margin-top: 6px;">
           ${item.isCustom ? `<button type="button" class="btn-delete-custom" data-catalog-id="${item.id}" title="Eliminar definitivamente del catálogo">🗑</button>` : ''}
-          <button type="button" class="btn-insert-quick btn-place-catalog" data-id="${item.id}" title="Colocar en el centro del taller">
-            ${placedCount === 0 ? '+ Colocar' : '+ Colocar copia'}
+          <button type="button" class="btn-insert-quick btn-place-catalog" data-id="${item.id}" ${item.isUnique && placedCount >= 1 ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : ''} title="${item.isUnique && placedCount >= 1 ? 'Activo único ya ubicado' : 'Colocar en el centro del taller'}">
+            ${placedCount === 0 ? '+ Colocar' : (item.isUnique ? '✓ Ubicado' : '+ Colocar copia')}
           </button>
         </div>
       `;
@@ -1245,6 +1262,12 @@ class LayoutPlannerApp {
           ? `¿Eliminar "${item.name}" del catálogo y retirar sus ${count} copias del taller?`
           : `¿Eliminar "${item.name}" del catálogo?`;
         if (confirm(msg)) {
+          if (this.selectedMachineId) {
+            const sel = this.getSelectedMachine();
+            if (sel && (sel.catalogId === item.id || sel.id === item.id)) {
+              this.selectMachine(null);
+            }
+          }
           this.machines = this.machines.filter(m => m.catalogId !== item.id);
           this.catalog = this.catalog.filter(c => c.id !== item.id);
           this.updateAllUI();
@@ -1439,6 +1462,7 @@ class LayoutPlannerApp {
       }
 
       const clrOffsets = [clearanceVal, clearanceVal, clearanceVal, clearanceVal];
+      const isUnique = objType === 'unique';
 
       const newCatItem = {
         id: `custom_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
@@ -1450,7 +1474,8 @@ class LayoutPlannerApp {
         color,
         wallOffset: Number(wallOffset.toFixed(2)),
         clearanceOffsets: clrOffsets,
-        isCustom: true
+        isCustom: true,
+        isUnique
       };
 
       this.catalog.push(newCatItem);

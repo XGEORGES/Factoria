@@ -150,8 +150,8 @@ export function getMachineCorners(machine) {
  */
 export function getMachineEdgeSegment(machine, edgeIndex) {
   const corners = getMachineCorners(machine);
-  const idx1 = edgeIndex % 4;
-  const idx2 = (edgeIndex + 1) % 4;
+  const idx1 = (((edgeIndex ?? 0) % 4) + 4) % 4;
+  const idx2 = (idx1 + 1) % 4;
   const p1 = corners[idx1];
   const p2 = corners[idx2];
   return {
@@ -206,8 +206,8 @@ export function getMachineClearanceCorners(machine) {
  */
 export function getMachineClearanceEdgeSegment(machine, edgeIndex) {
   const corners = getMachineClearanceCorners(machine);
-  const idx1 = edgeIndex % 4;
-  const idx2 = (edgeIndex + 1) % 4;
+  const idx1 = (((edgeIndex ?? 0) % 4) + 4) % 4;
+  const idx2 = (idx1 + 1) % 4;
   const p1 = corners[idx1];
   const p2 = corners[idx2];
   return {
@@ -309,10 +309,11 @@ export function checkPolygonPolygonCollision(poly1, poly2) {
   };
 
   const axes = [...getAxes(poly1), ...getAxes(poly2)];
+  const EPS = 0.001; // Tolerancia milimétrica para evitar falsos positivos en contacto exacto / snap
   for (const axis of axes) {
     const proj1 = project(poly1, axis);
     const proj2 = project(poly2, axis);
-    if (proj1.max < proj2.min || proj2.max < proj1.min) {
+    if (proj1.max < proj2.min + EPS || proj2.max < proj1.min + EPS) {
       return false; // Existe un eje de separación
     }
   }

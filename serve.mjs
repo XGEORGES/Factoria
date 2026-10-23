@@ -17,10 +17,17 @@ const MIME_TYPES = {
 };
 
 const server = http.createServer((req, res) => {
-  let reqPath = req.url.split('?')[0];
+  let rawPath = req.url.split('?')[0];
+  let reqPath = '/index.html';
+  try {
+    reqPath = decodeURIComponent(rawPath);
+  } catch {
+    reqPath = rawPath;
+  }
   if (reqPath === '/' || reqPath === '') reqPath = '/index.html';
 
-  const filePath = path.join(__dirname, reqPath);
+  const safePath = path.normalize(reqPath).replace(/^(\.\.[\/\\])+/, '');
+  const filePath = path.join(__dirname, safePath);
   const ext = path.extname(filePath).toLowerCase();
   const contentType = MIME_TYPES[ext] || 'application/octet-stream';
 

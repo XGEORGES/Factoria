@@ -13,8 +13,9 @@
 import { PERIMETER_VERTICES, getMachineCorners, getMachineEdgeSegment, getMachineClearanceCorners, getMachineClearanceOffsets } from './geometry.js';
 
 function wrapWordsForDXF(name, availMetricW, charWidth = 0.075) {
-  const words = (name || '').trim().split(/\s+/).filter(Boolean);
-  if (words.length <= 1) return [name];
+  const safeName = (name || '').trim();
+  const words = safeName.split(/\s+/).filter(Boolean);
+  if (words.length <= 1) return [safeName];
 
   const maxChars = Math.max(10, Math.floor(availMetricW / charWidth));
   const lines = [];

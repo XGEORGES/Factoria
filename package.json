@@ -5,7 +5,8 @@
   "main": "serve.mjs",
   "type": "module",
   "scripts": {
-    "start": "node serve.mjs"
+    "start": "node serve.mjs",
+    "test": "node test-multi-instance.mjs"
   },
   "keywords": [
     "cad",

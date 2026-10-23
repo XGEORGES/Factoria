@@ -23,7 +23,7 @@ export const SNAP_TRIGGER_DISTANCE = 0.60; // 0.60 m según especificación 6.2
  * 3: Izquierdo-> local normal apunta a -X (180°),      semieje W/2
  */
 export function getEdgeLocalMetrics(machine, edgeIndex) {
-  const edge = (edgeIndex ?? 2) % 4;
+  const edge = (((edgeIndex ?? 2) % 4) + 4) % 4;
   let localAngleDeg = 0;
   let halfDimension = 0;
 

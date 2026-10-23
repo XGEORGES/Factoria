@@ -59,7 +59,8 @@ export function exportLayoutJSON(machines, constructionLines = [], viewTransform
       clearanceOffsets: Array.isArray(c.clearanceOffsets) && c.clearanceOffsets.length === 4 
         ? c.clearanceOffsets.map(Number) 
         : [0.00, 0.00, 0.00, 0.00],
-      isCustom: Boolean(c.isCustom)
+      isCustom: Boolean(c.isCustom),
+      isUnique: Boolean(c.isUnique)
     })),
     constructionLines: (constructionLines || []).map(l => ({
       id: l.id,
@@ -141,7 +142,8 @@ export function validateLayoutData(data) {
         clearanceOffsets: Array.isArray(savedItem.clearanceOffsets) && savedItem.clearanceOffsets.length === 4
           ? savedItem.clearanceOffsets.map(Number)
           : [0.00, 0.00, 0.00, 0.00],
-        isCustom: true
+        isCustom: true,
+        isUnique: Boolean(savedItem.isUnique)
       });
     }
   }

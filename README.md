@@ -1,6 +1,6 @@
 # Taller CNC 2D Layout Planner (REV FINAL)
 
-Aplicación Web SPA (Single Page Application) frontend puro para el diseño y optimización de la distribución en planta (*layout*) de un taller de maquinado CNC de más de **1,100 m²**, con geometría perimetral paramétrica fija, catálogo físico estricto de 17 máquinas, zonas de seguridad y operario, snap magnético a muros con offset métrico, detección de colisiones SAT (Separating Axis Theorem) y exportación directa a AutoCAD en formato DXF.
+Aplicación Web SPA (Single Page Application) frontend puro para el diseño y optimización de la distribución en planta (*layout*) de un taller de maquinado CNC de más de **1,100 m²**, con geometría perimetral paramétrica fija, catálogo físico oficial de 29 máquinas, zonas de seguridad y operario, snap magnético a muros con offset métrico, detección de colisiones SAT (Separating Axis Theorem) y exportación directa a AutoCAD en formato DXF.
 
 ---
 
@@ -39,27 +39,39 @@ Polígono cerrado inmutable con origen $(0,0)$ en la esquina inferior izquierda:
 
 ---
 
-## 🏭 Catálogo de Máquinas (17 Activos Físicos)
+## 🏭 Catálogo de Máquinas (29 Activos Oficiales)
 
 El lienzo inicia **completamente vacío**. Todos los equipos comienzan en el panel lateral (*Sidebar*):
 
-1. **Centro CNC Grande:** 2.40 × 2.90 m
-2. **Centro CNC Pequeño:** 2.00 × 3.00 m
-3. **Torno CNC:** 1.50 × 3.30 m
-4. **Torno Convencional:** 1.30 × 3.55 m
-5. **Máquina Corte por Hilo:** 2.50 × 2.50 m
-6. **Cepillo de Bancada:** 3.75 × 2.00 m
-7. **Cepilladora / Rectif. Banco:** 1.30 × 4.00 m
-8. **Taladro Radial:** 1.20 × 2.00 m
-9. **Prensa de Motor:** 2.40 × 1.80 m
-10. **Prensa Hidráulica:** 1.20 × 1.80 m
-11. **Mesa de Trabajo:** 2.20 × 1.20 m
-12. **Rectificadora de Cigüeñal:** 5.50 × 2.20 m
-13. **Rectificadora de Asientos:** 1.60 × 1.05 m
-14. **Rectificadora de Culatas:** 1.80 × 1.00 m
-15. **Pulidora de Cilindros:** 1.50 × 1.00 m
-16. **Taladro de Banco:** 1.00 × 1.00 m
-17. **Compresor Principal:** 1.00 × 1.00 m
+1. **Rectificadora de Asientos:** 1.60 × 0.80 m
+2. **Rectificadora de Cilindros:** 1.90 × 1.50 m
+3. **Pruebas Hidrostáticas:** 1.80 × 0.70 m
+4. **Pulidora de Cilindro:** 1.00 × 1.50 m
+5. **Prensa Manual:** 1.10 × 0.90 m
+6. **Rectificadora de Cigüeñales:** 5.50 × 2.20 m
+7. **Corte por Hilo:** 2.50 × 2.50 m
+8. **Torno Convencional:** 3.60 × 1.30 m
+9. **Torno CNC:** 3.30 × 1.50 m
+10. **Caballete Rojo:** 2.60 × 2.70 m
+11. **Taladro Radial:** 2.00 × 0.90 m
+12. **Baja Tapa:** 0.80 × 1.00 m
+13. **Túnel de Bancada:** 3.80 × 0.70 m
+14. **Balanceador Dinámico:** 4.00 × 1.20 m
+15. **Sierra Cinta:** 1.90 × 1.40 m
+16. **Caballete Principal:** 2.00 × 3.00 m
+17. **Centro Pequeño:** 2.50 × 3.00 m
+18. **Centro Leadwell:** 2.40 × 2.90 m
+19. **Pluma:** 1.60 × 1.00 m
+20. **Bomba y Cuarto Eje:** 1.00 × 1.00 m
+21. **Rack:** 1.20 × 0.60 m
+22. **Prensa 200T:** 1.80 × 2.40 m
+23. **Rectificadora de Válvulas:** 0.60 × 0.50 m
+24. **Compresor de Tornillo:** 1.00 × 1.00 m
+25. **Tanque de Compresor Tornillo:** 0.80 × 0.80 m
+26. **Secador de Tornillo:** 0.80 × 0.60 m
+27. **Afilador de Broca:** 1.00 × 1.00 m
+28. **Piedras de Cigüeñal:** 1.00 × 1.20 m
+29. **Gabinete:** 1.30 × 0.70 m
 
 ---
 
@@ -72,9 +84,11 @@ El lienzo inicia **completamente vacío**. Todos los equipos comienzan en el pan
 | **Botón `📏` (Herramienta Guía)** | Activa el trazado de líneas constructivas (Clic inicio $\to$ Clic fin; `Shift` para ortogonal). |
 | **Botón `🧹` (Limpiar Guías)** | Elimina todas las líneas constructivas de referencia del plano. |
 | **Clic sobre Máquina** | La selecciona y activa el Gizmo de transformación. |
-| **Arrastre de Manija Gizmo** | Rotación libre continua en 360°. |
+| **Arrastre de Manija Gizmo** | Rotación libre continua en 360° (sigue fielmente el cursor). |
 | **Tecla `[R]`** | Rotación incremental rápida a **+90°**. |
+| **Tecla `[T]`** | Rotar orientación del nombre de la máquina en 90° (frontal, lateral, trasera). |
 | **Teclas `[Q]` / `[E]`** | Micro-rotación de ajuste fino a **-5° / +5°**. |
+| **Atajo `[Ctrl+D]`** | Duplica el objeto seleccionado. |
 | **Tecla `[Supr]` o `[Delete]`** | Retira la máquina seleccionada o borra la línea constructiva seleccionada. |
 | **Clic en Arista** | Asigna esa arista como **Línea del Operador** (**#00FF00 Verde 4px**). |
 | **Shift + Clic (o Clic Derecho)** | Asigna esa arista como **Arista de Offset a Muro** (Cian eléctrico `#00F0FF`). |

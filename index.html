@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Taller CNC 2D Layout Planner (REV FINAL)</title>
-  <link rel="stylesheet" href="css/styles.css?v=2.2">
+  <link rel="stylesheet" href="css/styles.css?v=2.3">
 </head>
 <body>
   <div id="app-container">
@@ -129,6 +129,9 @@
               <strong>Herramienta Medir Activa</strong>
               <p id="measure-banner-hint">Haz clic en el 1er punto y luego en el 2do punto (o arrastra con el ratón).</p>
             </div>
+            <button type="button" class="btn btn-sm btn-measure-snap active" id="btn-toggle-measure-snap" title="Alternar Snap Magnético a esquinas/muros (o mantén Alt)">
+              🧲 Snap: ON
+            </button>
             <span id="measure-banner-value" class="measure-banner-value">0.000 m</span>
             <button type="button" class="btn btn-sm btn-close-measure" id="btn-cancel-measure" title="Terminar medición (Esc)">✕ Salir</button>
           </div>
@@ -412,6 +415,6 @@
   </div>
 
   <!-- Scripts ES Modules -->
-  <script type="module" src="js/app.js?v=2.2"></script>
+  <script type="module" src="js/app.js?v=2.3"></script>
 </body>
 </html>

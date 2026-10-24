@@ -40,6 +40,7 @@ class LayoutPlannerApp {
     this.isSpacePressed = false;
     this.isCtrlPressed = false;
     this.isShiftPressed = false;
+    this.isAltPressed = false;
 
     // Snap Magnético a Muros (activado por defecto, configurable por usuario)
     const savedSnap = localStorage.getItem('factoria_wall_snap_enabled');
@@ -48,6 +49,10 @@ class LayoutPlannerApp {
     // Snap y Auto-alineación entre Objetos y Zonas (activado por defecto, configurable por usuario)
     const savedObjSnap = localStorage.getItem('factoria_object_snap_enabled');
     this.objectSnapEnabled = savedObjSnap !== null ? savedObjSnap === 'true' : true;
+
+    // Snap Magnético en Herramienta Medir (activado por defecto, configurable por usuario)
+    const savedMeasureSnap = localStorage.getItem('factoria_measure_snap_enabled');
+    this.measureSnapEnabled = savedMeasureSnap !== null ? savedMeasureSnap === 'true' : true;
 
     this.initElements();
     this.initCanvasEngine();
@@ -130,6 +135,7 @@ class LayoutPlannerApp {
     this.measureBannerValue = document.getElementById('measure-banner-value');
     this.measureBannerHint = document.getElementById('measure-banner-hint');
     this.btnCancelMeasure = document.getElementById('btn-cancel-measure');
+    this.btnToggleMeasureSnap = document.getElementById('btn-toggle-measure-snap');
     this.btnInspMeasure = document.getElementById('btn-insp-measure');
   }
 
@@ -427,8 +433,9 @@ class LayoutPlannerApp {
       // 0. Modo Herramienta Medir (Punto a Punto)
       if (this.toolMode === 'measure' && e.button === 0) {
         const worldPt = this.engine.screenToWorld(sx, sy);
+        const shouldSnap = this.measureSnapEnabled && !e.altKey && !this.isAltPressed;
         const snapRadiusM = 16 / this.engine.scale;
-        const snapPt = findSnapPointForMeasure(worldPt.x, worldPt.y, this.machines, this.constructionLines, snapRadiusM);
+        const snapPt = shouldSnap ? findSnapPointForMeasure(worldPt.x, worldPt.y, this.machines, this.constructionLines, snapRadiusM) : null;
         const effectivePt = snapPt ? { x: snapPt.x, y: snapPt.y } : worldPt;
 
         if (!this.measureStart) {
@@ -662,8 +669,9 @@ class LayoutPlannerApp {
       // Modo Herramienta Medir activo
       if (this.toolMode === 'measure') {
         canvas.style.cursor = 'crosshair';
+        const shouldSnap = this.measureSnapEnabled && !e.altKey && !this.isAltPressed;
         const snapRadiusM = 16 / this.engine.scale;
-        const snapPt = findSnapPointForMeasure(worldPt.x, worldPt.y, this.machines, this.constructionLines, snapRadiusM);
+        const snapPt = shouldSnap ? findSnapPointForMeasure(worldPt.x, worldPt.y, this.machines, this.constructionLines, snapRadiusM) : null;
 
         if (this.measureStart) {
           if (this.measureStartScreen && Math.hypot(sx - this.measureStartScreen.x, sy - this.measureStartScreen.y) > 8) {
@@ -1019,6 +1027,7 @@ class LayoutPlannerApp {
     window.addEventListener('keydown', (e) => {
       this.isCtrlPressed = e.ctrlKey;
       this.isShiftPressed = e.shiftKey;
+      this.isAltPressed = e.altKey;
 
       if (e.code === 'Space' && !this.isSpacePressed && e.target.tagName !== 'INPUT') {
         this.isSpacePressed = true;
@@ -1074,6 +1083,7 @@ class LayoutPlannerApp {
     window.addEventListener('keyup', (e) => {
       this.isCtrlPressed = e.ctrlKey;
       this.isShiftPressed = e.shiftKey;
+      this.isAltPressed = e.altKey;
 
       if (e.code === 'Space') {
         this.isSpacePressed = false;
@@ -1087,6 +1097,7 @@ class LayoutPlannerApp {
       this.isCtrlPressed = false;
       this.isShiftPressed = false;
       this.isSpacePressed = false;
+      this.isAltPressed = false;
     });
   }
   // ==========================================================
@@ -1230,6 +1241,10 @@ class LayoutPlannerApp {
     this.statusToolMeasure?.addEventListener('click', toggleMeasure);
     this.btnCancelMeasure?.addEventListener('click', () => this.setToolMode('select'));
     this.btnInspMeasure?.addEventListener('click', toggleMeasure);
+    this.btnToggleMeasureSnap?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleMeasureSnap();
+    });
 
     // Herramienta Línea Constructiva (Referencia)
     document.getElementById('btn-tool-guideline')?.addEventListener('click', () => {
@@ -1837,6 +1852,30 @@ class LayoutPlannerApp {
     this.showToast(this.objectSnapEnabled ? '🧩 Snap entre objetos y zonas: ACTIVADO' : '🧩 Snap entre objetos y zonas: DESACTIVADO (movimiento libre)');
   }
 
+  toggleMeasureSnap(forceState) {
+    this.measureSnapEnabled = typeof forceState === 'boolean' ? forceState : !this.measureSnapEnabled;
+    try {
+      localStorage.setItem('factoria_measure_snap_enabled', String(this.measureSnapEnabled));
+    } catch (e) {}
+    this.updateMeasureSnapUI();
+    this.showToast(this.measureSnapEnabled ? '🧲 Snap de medición: ACTIVADO' : '🧲 Snap de medición: DESACTIVADO (cursor libre)');
+    this.engine.requestRender();
+  }
+
+  updateMeasureSnapUI() {
+    if (this.btnToggleMeasureSnap) {
+      if (this.measureSnapEnabled) {
+        this.btnToggleMeasureSnap.textContent = '🧲 Snap: ON';
+        this.btnToggleMeasureSnap.className = 'btn btn-sm btn-measure-snap active';
+        this.btnToggleMeasureSnap.title = 'Snap Magnético a esquinas/muros: ACTIVADO (Clic para desactivar, o mantén Alt)';
+      } else {
+        this.btnToggleMeasureSnap.textContent = '🧲 Snap: OFF';
+        this.btnToggleMeasureSnap.className = 'btn btn-sm btn-measure-snap disabled';
+        this.btnToggleMeasureSnap.title = 'Snap Magnético a esquinas/muros: DESACTIVADO (Clic para activar)';
+      }
+    }
+  }
+
   updateSnapUI() {
     if (this.btnToggleWallSnap) {
       this.btnToggleWallSnap.classList.toggle('active', this.wallSnapEnabled);
@@ -1878,6 +1917,7 @@ class LayoutPlannerApp {
   updateAllUI() {
     this.updateCounters();
     this.updateSnapUI();
+    this.updateMeasureSnapUI();
     this.renderSidebarList();
     this.updateInspector();
     this.engine.setMachines(this.machines);
@@ -2256,6 +2296,7 @@ class LayoutPlannerApp {
       this.canvas.style.cursor = 'crosshair';
       this.selectMachine(null);
       this.selectGuideline(null);
+      this.updateMeasureSnapUI();
       this.measureFloatingBanner?.classList.remove('hidden');
       if (this.measureBannerValue) this.measureBannerValue.textContent = '0.000 m';
       if (this.measureBannerHint) this.measureBannerHint.textContent = 'Haz clic en el 1er punto y luego en el 2do punto (o arrastra con el ratón).';

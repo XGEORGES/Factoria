@@ -898,22 +898,22 @@ export class CanvasEngine {
     }
 
     // 3. ARISTA DEL OPERADOR Y ARISTA DE OFFSET (Sección 5.4 con indicador de color activo)
+    const opEdgeIndex = (m.operatorEdge ?? 0) % 4;
+    const offsetEdgeIndex = (m.offsetEdge ?? 2) % 4;
+
+    const opIdx1 = opEdgeIndex;
+    const opIdx2 = (opEdgeIndex + 1) % 4;
+    const opP1 = screenCorners[opIdx1];
+    const opP2 = screenCorners[opIdx2];
+
+    const offIdx1 = offsetEdgeIndex;
+    const offIdx2 = (offsetEdgeIndex + 1) % 4;
+    const offP1 = screenCorners[offIdx1];
+    const offP2 = screenCorners[offIdx2];
+
     // En Modo Vista Limpia, solo se muestran si la máquina está seleccionada
     const showEdges = !this.cleanViewMode || isSelected;
     if (showEdges) {
-      const opEdgeIndex = (m.operatorEdge ?? 0) % 4;
-      const offsetEdgeIndex = (m.offsetEdge ?? 2) % 4;
-
-      const opIdx1 = opEdgeIndex;
-      const opIdx2 = (opEdgeIndex + 1) % 4;
-      const opP1 = screenCorners[opIdx1];
-      const opP2 = screenCorners[opIdx2];
-
-      const offIdx1 = offsetEdgeIndex;
-      const offIdx2 = (offsetEdgeIndex + 1) % 4;
-      const offP1 = screenCorners[offIdx1];
-      const offP2 = screenCorners[offIdx2];
-
       if (opEdgeIndex === offsetEdgeIndex) {
         // Caso arista compartida (Operador + Offset): Trazo bicoloreado verde y cian
         ctx.beginPath();

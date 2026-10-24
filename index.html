@@ -175,6 +175,34 @@
               </div>
             </div>
 
+            <!-- Dimensiones Métricas (Largo y Ancho en metros) -->
+            <div class="insp-group" id="insp-group-dims">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                <label id="insp-dims-label">Dimensiones Métricas (m)</label>
+                <span id="insp-dims-badge" class="badge-offset-indicator" style="background: rgba(99, 102, 241, 0.15); color: #818cf8;">⛶ Zona Editable</span>
+              </div>
+              <div class="insp-row">
+                <div class="insp-input-box" title="Ancho en el eje local X (metros)">
+                  <span>Ancho [X]:</span>
+                  <input type="number" id="insp-width" step="0.10" min="0.20" max="100.0" value="0.00">
+                  <span>m</span>
+                </div>
+                <div class="insp-input-box" title="Largo / Profundidad en el eje local Y (metros)">
+                  <span>Largo [Y]:</span>
+                  <input type="number" id="insp-height" step="0.10" min="0.20" max="100.0" value="0.00">
+                  <span>m</span>
+                </div>
+              </div>
+              <!-- Botones de Ajuste Rápido de Medidas (+/- 0.5m) -->
+              <div class="rot-quick-btns" id="insp-dims-quick-btns" style="margin-top: 6px;">
+                <button type="button" class="btn-rot-sub" data-dim-axis="width" data-dim-delta="-0.5" title="Reducir Ancho -0.5 m">-0.5m Ancho</button>
+                <button type="button" class="btn-rot-sub" data-dim-axis="width" data-dim-delta="0.5" title="Aumentar Ancho +0.5 m">+0.5m Ancho</button>
+                <button type="button" class="btn-rot-sub" data-dim-axis="height" data-dim-delta="-0.5" title="Reducir Largo -0.5 m">-0.5m Largo</button>
+                <button type="button" class="btn-rot-sub" data-dim-axis="height" data-dim-delta="0.5" title="Aumentar Largo +0.5 m">+0.5m Largo</button>
+              </div>
+              <span id="insp-dims-hint" style="font-size: 10px; color: var(--text-muted); margin-top: 4px; display: block;">Modifica el largo y ancho. Se actualiza en tiempo real en la planta.</span>
+            </div>
+
             <!-- Rotación Angular (Sección 5.3) -->
             <div class="insp-group">
               <label>Rotación Angular</label>
@@ -299,6 +327,9 @@
               <button class="btn btn-sm btn-primary" id="btn-insp-snap" style="justify-content: center;">
                 🧲 Alinear a Muro más Cercano
               </button>
+              <button class="btn btn-sm" id="btn-insp-edit-modal" style="justify-content: center; border-color: rgba(99, 102, 241, 0.4); color: #a5b4fc;" title="Modificar nombre, medidas completas y propiedades">
+                ✏️ Modificar Medidas / Propiedades
+              </button>
               <button class="btn btn-sm" id="btn-insp-measure" style="justify-content: center; color: #fbbf24; border-color: rgba(245, 158, 11, 0.4);" title="Medir distancias en el plano">
                 📐 Medir Distancias
               </button>
@@ -410,11 +441,76 @@
       </div>
     </div>
 
+    <!-- MODAL EDITAR OBJETO / ZONA (MODIFICAR MEDIDAS) -->
+    <div id="modal-edit-object" class="modal-overlay hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3 id="modal-edit-title">✏️ Modificar Medidas y Propiedades</h3>
+          <button class="btn-close-modal" id="btn-close-edit-modal" type="button">✕</button>
+        </div>
+        <form id="form-edit-object" class="modal-body">
+          <input type="hidden" id="edit-obj-id" value="">
+
+          <div class="form-group">
+            <label for="edit-obj-name">Nombre descriptivo</label>
+            <input type="text" id="edit-obj-name" required autocomplete="off">
+          </div>
+
+          <div class="form-group" id="edit-group-category">
+            <label for="edit-obj-category">Categoría</label>
+            <select id="edit-obj-category">
+              <option value="Zonas y Recintos">⛶ Zonas y Recintos</option>
+              <option value="Mecanizado CNC">Mecanizado CNC</option>
+              <option value="Torneado">Torneado</option>
+              <option value="Electroerosión">Electroerosión</option>
+              <option value="Rectificado">Rectificado</option>
+              <option value="Prensas">Prensas</option>
+              <option value="Bancos / Mesas">Bancos / Mesas</option>
+              <option value="Almacenaje / Logística">Almacenaje / Logística</option>
+              <option value="Servicios Auxiliares">Servicios Auxiliares</option>
+              <option value="Personalizado">Personalizado</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="edit-obj-width">Ancho [X] (m)</label>
+              <input type="number" id="edit-obj-width" step="0.05" min="0.20" max="50.0" required>
+            </div>
+            <div class="form-group">
+              <label for="edit-obj-height">Largo / Profundidad [Y] (m)</label>
+              <input type="number" id="edit-obj-height" step="0.05" min="0.20" max="50.0" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="edit-obj-wall-offset">Distancia a Muro (m)</label>
+              <input type="number" id="edit-obj-wall-offset" step="0.05" min="0.00" max="10.0" value="0.00">
+            </div>
+            <div class="form-group">
+              <label for="edit-obj-clearance">Separación entre Máquinas (m)</label>
+              <input type="number" id="edit-obj-clearance" step="0.05" min="0.0" max="10.0" value="0.00">
+            </div>
+            <div class="form-group">
+              <label for="edit-obj-color">Color</label>
+              <input type="color" id="edit-obj-color" value="#6366f1">
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" class="btn" id="btn-cancel-edit-modal">Cancelar</button>
+            <button type="submit" class="btn btn-primary">💾 Guardar Cambios</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <!-- Toast Notification -->
     <div id="toast"></div>
   </div>
 
   <!-- Scripts ES Modules -->
-  <script type="module" src="js/app.js?v=2.3"></script>
+  <script type="module" src="js/app.js?v=2.4"></script>
 </body>
 </html>

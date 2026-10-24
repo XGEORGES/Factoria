@@ -1283,6 +1283,22 @@ body {
   background-color: rgba(239, 68, 68, 0.15);
 }
 
+.btn-edit-custom {
+  background: transparent;
+  border: none;
+  color: #38bdf8;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: background-color 0.15s, transform 0.1s;
+}
+
+.btn-edit-custom:hover {
+  background-color: rgba(56, 189, 248, 0.18);
+  transform: scale(1.1);
+}
+
 /* ==========================================================
    PLANTILLAS PERSONALIZADAS REUTILIZABLES (MESAS DE TRABAJO)
    ========================================================== */

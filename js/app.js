@@ -61,6 +61,7 @@ class LayoutPlannerApp {
     this.initKeyboardEvents();
     this.initUIControls();
     this.initCustomObjectModal();
+    this.initEditObjectModal();
 
     // Intentar restaurar sesión previa si existe
     const saved = loadFromLocalStorage();
@@ -107,6 +108,12 @@ class LayoutPlannerApp {
     this.inspDims = document.getElementById('insp-dims');
     this.inspX = document.getElementById('insp-x');
     this.inspY = document.getElementById('insp-y');
+    this.inspWidth = document.getElementById('insp-width');
+    this.inspHeight = document.getElementById('insp-height');
+    this.inspDimsBadge = document.getElementById('insp-dims-badge');
+    this.inspDimsGroup = document.getElementById('insp-group-dims');
+    this.inspDimsHint = document.getElementById('insp-dims-hint');
+    this.btnInspEditModal = document.getElementById('btn-insp-edit-modal');
     this.inspRot = document.getElementById('insp-rotation');
     this.inspRotSlider = document.getElementById('insp-rotation-slider');
     this.inspWallOffset = document.getElementById('insp-wall-offset');
@@ -1335,6 +1342,68 @@ class LayoutPlannerApp {
       }
     });
 
+    const updateDimension = (axis, rawVal) => {
+      const selected = this.getSelectedMachine();
+      if (!selected) return;
+      const parsed = parseFloat(String(rawVal).replace(',', '.'));
+      if (isNaN(parsed) || parsed < 0.20 || parsed > 100.0) return;
+      const val = Number(parsed.toFixed(2));
+      if (axis === 'width') {
+        if (selected.width === val) return;
+        selected.width = val;
+      } else if (axis === 'height') {
+        if (selected.height === val) return;
+        selected.height = val;
+      }
+
+      // Sincronizar catálogo asociado si existe
+      const catId = selected.catalogId || selected.id;
+      const catItem = this.catalog.find(c => c.id === catId);
+      if (catItem) {
+        catItem.width = selected.width;
+        catItem.height = selected.height;
+      }
+
+      // Si es una zona, comprobar si los objetos dentro/fuera cambian de contenedor
+      if (selected.isZone) {
+        this.recheckAllZoneChildren();
+      }
+
+      this.engine.updateCollisions();
+      this.engine.requestRender();
+      this.updateInspector();
+      this.renderSidebarList();
+      this.saveState();
+    };
+
+    this.inspWidth?.addEventListener('change', (e) => {
+      updateDimension('width', e.target.value);
+    });
+
+    this.inspHeight?.addEventListener('change', (e) => {
+      updateDimension('height', e.target.value);
+    });
+
+    // Botones de ajuste rápido (+/- 0.5m)
+    document.querySelectorAll('#insp-dims-quick-btns [data-dim-axis]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const selected = this.getSelectedMachine();
+        if (!selected) return;
+        const axis = btn.dataset.dimAxis;
+        const delta = parseFloat(btn.dataset.dimDelta) || 0;
+        const current = axis === 'width' ? selected.width : selected.height;
+        const next = Math.max(0.20, Number((current + delta).toFixed(2)));
+        updateDimension(axis, next);
+      });
+    });
+
+    this.btnInspEditModal?.addEventListener('click', () => {
+      const selected = this.getSelectedMachine();
+      if (selected) {
+        this.openEditObjectModal(selected, false);
+      }
+    });
+
     this.inspRot?.addEventListener('input', (e) => {
       const selected = this.getSelectedMachine();
       if (selected) {
@@ -2010,7 +2079,10 @@ class LayoutPlannerApp {
         </div>
 
         <div style="display: flex; gap: 6px; align-self: flex-end; align-items: center; margin-top: 6px;">
-          ${item.isCustom ? `<button type="button" class="btn-delete-custom" data-catalog-id="${item.id}" title="Eliminar definitivamente del catálogo">🗑</button>` : ''}
+          ${(item.isCustom || item.isZone) ? `
+            <button type="button" class="btn-edit-custom" data-catalog-id="${item.id}" title="Editar medidas y propiedades de ${item.isZone ? 'la zona' : 'este elemento'}">✏️</button>
+            <button type="button" class="btn-delete-custom" data-catalog-id="${item.id}" title="Eliminar definitivamente del catálogo">🗑</button>
+          ` : ''}
           <button type="button" class="btn-insert-quick btn-place-catalog" data-id="${item.id}" ${item.isUnique && placedCount >= 1 ? 'disabled style="opacity:0.4;cursor:not-allowed;"' : ''} title="${item.isUnique && placedCount >= 1 ? 'Activo único ya ubicado' : 'Colocar en el centro del taller'}">
             ${placedCount === 0 ? '+ Colocar' : (item.isUnique ? '✓ Ubicado' : '+ Colocar copia')}
           </button>
@@ -2063,6 +2135,12 @@ class LayoutPlannerApp {
         }
         this.updateAllUI();
         this.saveState();
+      });
+
+      // Editar ítem / zona personalizada desde catálogo
+      card.querySelector('.btn-edit-custom')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.openEditObjectModal(item, true);
       });
 
       // Eliminar ítem personalizado
@@ -2224,6 +2302,52 @@ class LayoutPlannerApp {
     }
     if (this.inspX) this.inspX.value = selected.x.toFixed(2);
     if (this.inspY) this.inspY.value = selected.y.toFixed(2);
+
+    // Actualizar campos de dimensiones métricas (Ancho y Largo)
+    if (this.inspWidth && document.activeElement !== this.inspWidth) {
+      this.inspWidth.value = selected.width.toFixed(2);
+    }
+    if (this.inspHeight && document.activeElement !== this.inspHeight) {
+      this.inspHeight.value = selected.height.toFixed(2);
+    }
+
+    const isEditable = Boolean(selected.isZone || selected.isCustom || (selected.catalogId && selected.catalogId.startsWith('custom_')));
+    if (this.inspWidth) this.inspWidth.disabled = !isEditable;
+    if (this.inspHeight) this.inspHeight.disabled = !isEditable;
+
+    const quickDimsBtns = document.getElementById('insp-dims-quick-btns');
+    if (quickDimsBtns) quickDimsBtns.style.display = isEditable ? 'grid' : 'none';
+
+    if (this.inspDimsHint) {
+      this.inspDimsHint.textContent = isEditable
+        ? (selected.isZone ? 'Modifica el largo y ancho de la zona en tiempo real.' : 'Modifica las medidas del objeto en tiempo real.')
+        : 'Dimensiones fijas de especificación oficial CNC.';
+    }
+
+    if (this.inspDimsBadge) {
+      if (selected.isZone) {
+        this.inspDimsBadge.style.display = 'inline-block';
+        this.inspDimsBadge.style.background = 'rgba(99, 102, 241, 0.15)';
+        this.inspDimsBadge.style.color = '#818cf8';
+        this.inspDimsBadge.textContent = '⛶ Medidas de Zona';
+      } else if (selected.isCustom) {
+        this.inspDimsBadge.style.display = 'inline-block';
+        this.inspDimsBadge.style.background = 'rgba(56, 189, 248, 0.15)';
+        this.inspDimsBadge.style.color = 'var(--accent-cyan)';
+        this.inspDimsBadge.textContent = '📦 Objeto Personalizado';
+      } else {
+        this.inspDimsBadge.style.display = 'inline-block';
+        this.inspDimsBadge.style.background = 'rgba(148, 163, 184, 0.15)';
+        this.inspDimsBadge.style.color = '#94a3b8';
+        this.inspDimsBadge.textContent = '⚙ Catálogo CNC';
+      }
+    }
+
+    if (this.btnInspEditModal) {
+      this.btnInspEditModal.style.display = isEditable ? 'flex' : 'none';
+      this.btnInspEditModal.textContent = selected.isZone ? '✏️ Modificar Medidas de Zona' : '✏️ Modificar Medidas / Propiedades';
+    }
+
     if (this.inspRot) this.inspRot.value = Math.round(selected.rotation);
     if (this.inspRotSlider) this.inspRotSlider.value = Math.round(selected.rotation);
     if (this.inspWallOffset) this.inspWallOffset.value = (selected.wallOffset ?? 0.00).toFixed(2);
@@ -2465,6 +2589,188 @@ class LayoutPlannerApp {
       closeModal();
       this.showToast(`"${name}" (${isZone ? 'Zona / Recinto' : 'Objeto'}) añadido al catálogo.`);
     });
+  }
+
+  // ==========================================================
+  // RE-EVALUAR PERTENENCIA DE OBJETOS A ZONAS
+  // ==========================================================
+  recheckAllZoneChildren() {
+    const placed = this.machines.filter(m => m.isPlaced);
+    const zones = placed.filter(z => z.isZone);
+    const nonZones = placed.filter(m => !m.isZone);
+
+    for (const m of nonZones) {
+      const targetZone = zones.find(z => isPointInsideMachine(m.x, m.y, z));
+      if (targetZone) {
+        if (m.parentId !== targetZone.id) {
+          m.parentId = targetZone.id;
+        }
+      } else if (m.parentId) {
+        m.parentId = null;
+      }
+    }
+  }
+
+  // ==========================================================
+  // MODAL EDITAR MEDIDAS Y PROPIEDADES (ZONA / OBJETO)
+  // ==========================================================
+  initEditObjectModal() {
+    const modal = document.getElementById('modal-edit-object');
+    const btnClose = document.getElementById('btn-close-edit-modal');
+    const btnCancel = document.getElementById('btn-cancel-edit-modal');
+    const form = document.getElementById('form-edit-object');
+
+    const closeModal = () => {
+      modal?.classList.add('hidden');
+    };
+
+    btnClose?.addEventListener('click', closeModal);
+    btnCancel?.addEventListener('click', closeModal);
+
+    modal?.querySelector('.modal-card')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+
+    form?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && e.target.tagName === 'INPUT') {
+        e.preventDefault();
+        const inputs = Array.from(form.querySelectorAll('input:not([type="hidden"]):not([type="color"]), select'));
+        const idx = inputs.indexOf(e.target);
+        if (idx !== -1 && idx < inputs.length - 1) {
+          inputs[idx + 1].focus();
+        } else {
+          form.requestSubmit();
+        }
+      }
+    });
+
+    form?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const targetRef = document.getElementById('edit-obj-id')?.value;
+      if (!targetRef) return;
+
+      const name = document.getElementById('edit-obj-name')?.value.trim();
+      const category = document.getElementById('edit-obj-category')?.value || 'Zonas y Recintos';
+      const widthRaw = parseFloat(document.getElementById('edit-obj-width')?.value.replace(',', '.'));
+      const heightRaw = parseFloat(document.getElementById('edit-obj-height')?.value.replace(',', '.'));
+      const wallOffsetRaw = parseFloat(document.getElementById('edit-obj-wall-offset')?.value);
+      const wallOffset = isNaN(wallOffsetRaw) ? 0.00 : Math.max(0.00, Math.min(10.0, wallOffsetRaw));
+      const clearanceVal = parseFloat(document.getElementById('edit-obj-clearance')?.value) || 0.00;
+      const color = document.getElementById('edit-obj-color')?.value || '#6366f1';
+
+      if (!name || isNaN(widthRaw) || isNaN(heightRaw) || widthRaw < 0.20 || heightRaw < 0.20) {
+        alert('Por favor introduce dimensiones válidas (mínimo 0.20 m) y un nombre descriptivo.');
+        return;
+      }
+
+      const width = Number(widthRaw.toFixed(2));
+      const height = Number(heightRaw.toFixed(2));
+      const clrOffsets = [clearanceVal, clearanceVal, clearanceVal, clearanceVal];
+      const [type, id] = targetRef.split(':');
+
+      if (type === 'catalog') {
+        const catItem = this.catalog.find(c => c.id === id);
+        if (catItem) {
+          catItem.name = name;
+          catItem.category = category;
+          catItem.width = width;
+          catItem.height = height;
+          catItem.color = color;
+          catItem.wallOffset = Number(wallOffset.toFixed(2));
+          catItem.clearanceOffsets = clrOffsets;
+
+          // Sincronizar todas las instancias colocadas en planta de esta plantilla
+          const instances = this.machines.filter(m => (m.catalogId === id || m.id === id) && m.isPlaced);
+          instances.forEach((inst, idx) => {
+            if (instances.length > 1 && !catItem.isUnique) {
+              inst.name = `${name} #${idx + 1}`;
+            } else {
+              inst.name = name;
+            }
+            inst.width = width;
+            inst.height = height;
+            inst.color = color;
+            inst.category = category;
+            inst.wallOffset = catItem.wallOffset;
+            inst.clearanceOffsets = [...clrOffsets];
+          });
+        }
+      } else if (type === 'machine') {
+        const machine = this.machines.find(m => m.id === id);
+        if (machine) {
+          machine.name = name;
+          machine.category = category;
+          machine.width = width;
+          machine.height = height;
+          machine.color = color;
+          machine.wallOffset = Number(wallOffset.toFixed(2));
+          machine.clearanceOffsets = clrOffsets;
+
+          // Sincronizar catálogo correspondiente si existe
+          const catId = machine.catalogId || machine.id;
+          const catItem = this.catalog.find(c => c.id === catId);
+          if (catItem) {
+            catItem.name = name.replace(/ #\d+$/, '');
+            catItem.width = width;
+            catItem.height = height;
+            catItem.color = color;
+            catItem.category = machine.category;
+            catItem.wallOffset = machine.wallOffset;
+            catItem.clearanceOffsets = [...clrOffsets];
+          }
+        }
+      }
+
+      this.recheckAllZoneChildren();
+      this.updateInstanceNumbering();
+      this.engine.updateCollisions();
+      this.engine.requestRender();
+      this.updateAllUI();
+      this.saveState();
+
+      closeModal();
+      this.showToast(`Medidas de "${name}" actualizadas (${width.toFixed(2)} x ${height.toFixed(2)} m).`);
+    });
+  }
+
+  openEditObjectModal(target, isFromCatalog = false) {
+    const modal = document.getElementById('modal-edit-object');
+    if (!modal || !target) return;
+
+    const titleEl = document.getElementById('modal-edit-title');
+    const idInput = document.getElementById('edit-obj-id');
+    const nameInput = document.getElementById('edit-obj-name');
+    const catSelect = document.getElementById('edit-obj-category');
+    const widthInput = document.getElementById('edit-obj-width');
+    const heightInput = document.getElementById('edit-obj-height');
+    const wallOffsetInput = document.getElementById('edit-obj-wall-offset');
+    const clearanceInput = document.getElementById('edit-obj-clearance');
+    const colorInput = document.getElementById('edit-obj-color');
+
+    const isZone = Boolean(target.isZone);
+    if (titleEl) {
+      titleEl.textContent = isZone ? `✏️ Modificar Medidas de Zona: "${target.name}"` : `✏️ Modificar Medidas: "${target.name}"`;
+    }
+
+    if (idInput) {
+      idInput.value = isFromCatalog ? `catalog:${target.id}` : `machine:${target.id}`;
+    }
+
+    if (nameInput) nameInput.value = target.name || '';
+    if (catSelect) {
+      catSelect.value = target.category || (isZone ? 'Zonas y Recintos' : 'Personalizado');
+    }
+    if (widthInput) widthInput.value = (target.width || 1.00).toFixed(2);
+    if (heightInput) heightInput.value = (target.height || 1.00).toFixed(2);
+    if (wallOffsetInput) wallOffsetInput.value = (target.wallOffset ?? 0.00).toFixed(2);
+    if (clearanceInput) {
+      const clr = Array.isArray(target.clearanceOffsets) ? (target.clearanceOffsets[0] ?? 0.00) : 0.00;
+      clearanceInput.value = Number(clr).toFixed(2);
+    }
+    if (colorInput) colorInput.value = target.color || (isZone ? '#6366f1' : '#0284c7');
+
+    modal.classList.remove('hidden');
+    setTimeout(() => widthInput?.focus(), 50);
   }
 
   saveState() {

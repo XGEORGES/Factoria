@@ -144,6 +144,8 @@ class LayoutPlannerApp {
     this.btnCancelMeasure = document.getElementById('btn-cancel-measure');
     this.btnToggleMeasureSnap = document.getElementById('btn-toggle-measure-snap');
     this.btnInspMeasure = document.getElementById('btn-insp-measure');
+    this.btnToggleCleanView = document.getElementById('btn-toggle-clean-view');
+    this.statusCleanViewIndicator = document.getElementById('status-clean-view-indicator');
   }
 
   initCanvasEngine() {
@@ -1046,6 +1048,13 @@ class LayoutPlannerApp {
         return;
       }
 
+      // Tecla [V]: Alternar Modo Vista Limpia (Oculta áreas de offset y alertas rojas de colisión)
+      if ((e.key === 'v' || e.key === 'V') && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        this.toggleCleanView();
+        return;
+      }
+
       // Tecla [Supr] / [Delete] / [Backspace]: Retirar objetos, zonas o guías seleccionadas del plano
       if (e.key === 'Delete' || e.key === 'Backspace') {
         if (this.selectedMachineIds.size > 0 || this.selectedMachineId) {
@@ -1213,9 +1222,19 @@ class LayoutPlannerApp {
 
     document.getElementById('btn-toggle-clearance')?.addEventListener('click', (e) => {
       this.engine.showClearanceZones = !this.engine.showClearanceZones;
+      this.engine.showOffsetBadges = this.engine.showClearanceZones;
       e.currentTarget.classList.toggle('active', this.engine.showClearanceZones);
       this.engine.requestRender();
       this.showToast(this.engine.showClearanceZones ? 'Zonas de separación/offset visibles.' : 'Zonas de separación/offset ocultas.');
+    });
+
+    // Alternar Modo Vista Limpia (Oculta áreas de offset y alertas rojas de colisión)
+    this.btnToggleCleanView?.addEventListener('click', () => {
+      this.toggleCleanView();
+    });
+
+    this.statusCleanViewIndicator?.addEventListener('click', () => {
+      this.toggleCleanView();
     });
 
     // Alternar Snap Magnético a Muros / Paredes
@@ -1987,9 +2006,43 @@ class LayoutPlannerApp {
     this.updateCounters();
     this.updateSnapUI();
     this.updateMeasureSnapUI();
+    this.updateCleanViewUI(this.engine.cleanViewMode);
     this.renderSidebarList();
     this.updateInspector();
     this.engine.setMachines(this.machines);
+  }
+
+  toggleCleanView() {
+    const isClean = this.engine.toggleCleanViewMode();
+    this.updateCleanViewUI(isClean);
+    this.showToast(isClean 
+      ? '✨ Modo Vista Limpia ACTIVO: Offsets y alertas rojas ocultos.' 
+      : '🛡️ Modo Edición Detallada ACTIVO: Offsets y colisiones visibles.');
+  }
+
+  updateCleanViewUI(isClean) {
+    if (this.btnToggleCleanView) {
+      this.btnToggleCleanView.classList.toggle('active', isClean);
+      this.btnToggleCleanView.title = isClean 
+        ? 'Modo Vista Limpia: ACTIVO (Offsets y colisiones ocultos). Clic para volver a activar [Atajo: V]' 
+        : 'Modo Vista Limpia: Ocultar áreas de offset y alertas rojas de colisión [Atajo: V]';
+    }
+
+    if (this.statusCleanViewIndicator) {
+      this.statusCleanViewIndicator.textContent = isClean ? '✨ Vista Limpia: ON' : '✨ Vista Limpia: OFF';
+      this.statusCleanViewIndicator.className = isClean 
+        ? 'legend-chip snap-badge active-snap' 
+        : 'legend-chip snap-badge disabled-snap';
+      if (isClean) {
+        this.statusCleanViewIndicator.style.color = '#38bdf8';
+        this.statusCleanViewIndicator.style.borderColor = '#0284c7';
+        this.statusCleanViewIndicator.style.backgroundColor = 'rgba(56, 189, 248, 0.2)';
+      } else {
+        this.statusCleanViewIndicator.style.color = '';
+        this.statusCleanViewIndicator.style.borderColor = '';
+        this.statusCleanViewIndicator.style.backgroundColor = '';
+      }
+    }
   }
 
   updateCounters() {

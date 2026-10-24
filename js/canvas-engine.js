@@ -37,6 +37,9 @@ export class CanvasEngine {
     this.showDimensions = true;
     this.showOperatorZones = true;
     this.showClearanceZones = true; // Visualización de zonas de seguridad/offset entre máquinas
+    this.showOffsetBadges = true;   // Visualización de badges flotantes OFFSET: X.XXm y MURO: X.XXm
+    this.showCollisions = true;     // Visualización de alertas rojas de colisión
+    this.cleanViewMode = false;     // Modo Vista Limpia (Oculta áreas de offset y alertas rojas de colisión)
 
     // Estado de entidades
     this.machines = [];
@@ -122,6 +125,17 @@ export class CanvasEngine {
   setSnapGuide(guide) {
     this.snapGuide = guide;
     this.requestRender();
+  }
+
+  setCleanViewMode(enabled) {
+    this.cleanViewMode = Boolean(enabled);
+    this.requestRender();
+  }
+
+  toggleCleanViewMode() {
+    this.cleanViewMode = !this.cleanViewMode;
+    this.requestRender();
+    return this.cleanViewMode;
   }
 
   setHoveredEdge(hoverInfo) {
@@ -583,17 +597,19 @@ export class CanvasEngine {
     const zones = placed.filter(m => m.isZone);
     const nonZones = placed.filter(m => !m.isZone);
 
+    const allowCollisions = !this.cleanViewMode && this.showCollisions;
+
     // 1. Capa de Fondo: Zonas y Recintos
     for (const z of zones) {
       const isSelected = this.isMachineSelected(z.id);
-      const isColliding = this.collisionMap.get(z.id) === true;
+      const isColliding = allowCollisions ? (this.collisionMap.get(z.id) === true) : false;
       this.drawSingleZone(z, isSelected, isColliding);
     }
 
     // 2. Capa Superior: Máquinas, Mesas y Mobiliario
     for (const m of nonZones) {
       const isSelected = this.isMachineSelected(m.id);
-      const isColliding = this.collisionMap.get(m.id) === true;
+      const isColliding = allowCollisions ? (this.collisionMap.get(m.id) === true) : false;
       this.drawSingleMachine(m, isSelected, isColliding);
     }
   }
@@ -610,7 +626,7 @@ export class CanvasEngine {
     // 1. ZONA DE SEGURIDAD / CLEARANCE EXTERIOR DE LA ZONA (4 CARAS)
     const clearanceOffsets = getMachineClearanceOffsets(z);
     const hasClearance = clearanceOffsets.some(v => v > 0);
-    const showClearance = (this.showClearanceZones || isSelected) && hasClearance;
+    const showClearance = !this.cleanViewMode && (this.showClearanceZones || isSelected) && hasClearance;
 
     if (showClearance) {
       const clearanceCorners = getMachineClearanceCorners(z);
@@ -640,7 +656,7 @@ export class CanvasEngine {
       ctx.stroke();
       ctx.restore();
 
-      if (isSelected || (this.scale >= 22 && this.showClearanceZones)) {
+      if (!this.cleanViewMode && (isSelected || (this.scale >= 22 && this.showClearanceZones))) {
         this.drawClearanceLabels(z, screenClearance, clearanceOffsets);
       }
     }
@@ -732,7 +748,8 @@ export class CanvasEngine {
     }
 
     // 4. BADGE FLOTANTE DE OFFSET
-    if (isSelected || this.scale >= 20) {
+    const showZoneBadge = !this.cleanViewMode && this.showClearanceZones && this.showOffsetBadges && (isSelected || this.scale >= 20);
+    if (showZoneBadge) {
       const offMidX = (offP1.x + offP2.x) / 2;
       const offMidY = (offP1.y + offP2.y) / 2;
       const dx = offP2.x - offP1.x;
@@ -808,7 +825,7 @@ export class CanvasEngine {
     // 1. ZONA DE SEGURIDAD / CLEARANCE ENTRE MÁQUINAS (4 CARAS)
     const clearanceOffsets = getMachineClearanceOffsets(m);
     const hasClearance = clearanceOffsets.some(v => v > 0);
-    const showClearance = (this.showClearanceZones || isSelected) && hasClearance;
+    const showClearance = !this.cleanViewMode && (this.showClearanceZones || isSelected) && hasClearance;
 
     if (showClearance) {
       const clearanceCorners = getMachineClearanceCorners(m);
@@ -839,7 +856,7 @@ export class CanvasEngine {
       ctx.restore();
 
       // Cotas métricas en las 4 caras cuando la máquina está seleccionada o con buen zoom
-      if (isSelected || (this.scale >= 22 && this.showClearanceZones)) {
+      if (!this.cleanViewMode && (isSelected || (this.scale >= 22 && this.showClearanceZones))) {
         this.drawClearanceLabels(m, screenClearance, clearanceOffsets);
       }
     }
@@ -864,7 +881,7 @@ export class CanvasEngine {
     ctx.fill();
 
     // Contorno del cuerpo (Cian si normal, Rojo si colisión)
-    ctx.strokeStyle = isColliding ? '#ef4444' : (isSelected ? '#38bdf8' : '#0284c7');
+    ctx.strokeStyle = isColliding ? '#ef4444' : (isSelected ? '#38bdf8' : (m.color || '#0284c7'));
     ctx.lineWidth = isSelected ? 2.5 : 1.5;
     ctx.stroke();
 
@@ -881,69 +898,74 @@ export class CanvasEngine {
     }
 
     // 3. ARISTA DEL OPERADOR Y ARISTA DE OFFSET (Sección 5.4 con indicador de color activo)
-    const opEdgeIndex = (m.operatorEdge ?? 0) % 4;
-    const offsetEdgeIndex = (m.offsetEdge ?? 2) % 4;
+    // En Modo Vista Limpia, solo se muestran si la máquina está seleccionada
+    const showEdges = !this.cleanViewMode || isSelected;
+    if (showEdges) {
+      const opEdgeIndex = (m.operatorEdge ?? 0) % 4;
+      const offsetEdgeIndex = (m.offsetEdge ?? 2) % 4;
 
-    const opIdx1 = opEdgeIndex;
-    const opIdx2 = (opEdgeIndex + 1) % 4;
-    const opP1 = screenCorners[opIdx1];
-    const opP2 = screenCorners[opIdx2];
+      const opIdx1 = opEdgeIndex;
+      const opIdx2 = (opEdgeIndex + 1) % 4;
+      const opP1 = screenCorners[opIdx1];
+      const opP2 = screenCorners[opIdx2];
 
-    const offIdx1 = offsetEdgeIndex;
-    const offIdx2 = (offsetEdgeIndex + 1) % 4;
-    const offP1 = screenCorners[offIdx1];
-    const offP2 = screenCorners[offIdx2];
+      const offIdx1 = offsetEdgeIndex;
+      const offIdx2 = (offsetEdgeIndex + 1) % 4;
+      const offP1 = screenCorners[offIdx1];
+      const offP2 = screenCorners[offIdx2];
 
-    if (opEdgeIndex === offsetEdgeIndex) {
-      // Caso arista compartida (Operador + Offset): Trazo bicoloreado verde y cian
-      ctx.beginPath();
-      ctx.strokeStyle = '#00FF00';
-      ctx.lineWidth = 5;
-      ctx.lineCap = 'round';
-      ctx.moveTo(opP1.x, opP1.y);
-      ctx.lineTo(opP2.x, opP2.y);
-      ctx.stroke();
+      if (opEdgeIndex === offsetEdgeIndex) {
+        // Caso arista compartida (Operador + Offset): Trazo bicoloreado verde y cian
+        ctx.beginPath();
+        ctx.strokeStyle = '#00FF00';
+        ctx.lineWidth = 5;
+        ctx.lineCap = 'round';
+        ctx.moveTo(opP1.x, opP1.y);
+        ctx.lineTo(opP2.x, opP2.y);
+        ctx.stroke();
 
-      ctx.save();
-      ctx.setLineDash([8, 6]);
-      ctx.strokeStyle = '#00F0FF'; // Cian brillante offset
-      ctx.lineWidth = 5;
-      ctx.moveTo(offP1.x, offP1.y);
-      ctx.lineTo(offP2.x, offP2.y);
-      ctx.stroke();
-      ctx.restore();
-    } else {
-      // 3.1 Arista del Operador: Trazo continuo VERDE intenso #00FF00 de 4px
-      ctx.beginPath();
-      ctx.strokeStyle = '#00FF00';
-      ctx.lineWidth = 4;
-      ctx.lineCap = 'round';
-      ctx.moveTo(opP1.x, opP1.y);
-      ctx.lineTo(opP2.x, opP2.y);
-      ctx.stroke();
+        ctx.save();
+        ctx.setLineDash([8, 6]);
+        ctx.strokeStyle = '#00F0FF'; // Cian brillante offset
+        ctx.lineWidth = 5;
+        ctx.moveTo(offP1.x, offP1.y);
+        ctx.lineTo(offP2.x, offP2.y);
+        ctx.stroke();
+        ctx.restore();
+      } else {
+        // 3.1 Arista del Operador: Trazo continuo VERDE intenso #00FF00 de 4px
+        ctx.beginPath();
+        ctx.strokeStyle = '#00FF00';
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.moveTo(opP1.x, opP1.y);
+        ctx.lineTo(opP2.x, opP2.y);
+        ctx.stroke();
 
-      // 3.2 Arista de Offset ACTIVA: Trazo continuo CIAN ELÉCTRICO (#00F0FF) de 4px
-      ctx.beginPath();
-      ctx.strokeStyle = '#00F0FF';
-      ctx.lineWidth = 4;
-      ctx.lineCap = 'round';
-      ctx.moveTo(offP1.x, offP1.y);
-      ctx.lineTo(offP2.x, offP2.y);
-      ctx.stroke();
+        // 3.2 Arista de Offset ACTIVA: Trazo continuo CIAN ELÉCTRICO (#00F0FF) de 4px
+        ctx.beginPath();
+        ctx.strokeStyle = '#00F0FF';
+        ctx.lineWidth = 4;
+        ctx.lineCap = 'round';
+        ctx.moveTo(offP1.x, offP1.y);
+        ctx.lineTo(offP2.x, offP2.y);
+        ctx.stroke();
 
-      // Resalte central en blanco técnico para máxima visibilidad CAD
-      ctx.save();
-      ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 1.5;
-      ctx.moveTo(offP1.x, offP1.y);
-      ctx.lineTo(offP2.x, offP2.y);
-      ctx.stroke();
-      ctx.restore();
+        // Resalte central en blanco técnico para máxima visibilidad CAD
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.moveTo(offP1.x, offP1.y);
+        ctx.lineTo(offP2.x, offP2.y);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
 
     // 4. BADGE FLOTANTE DE ARISTA DE OFFSET ACTIVA (Si está seleccionada o con zoom)
-    if (isSelected || this.scale >= 20) {
+    const showMachineBadge = !this.cleanViewMode && this.showClearanceZones && this.showOffsetBadges && (isSelected || this.scale >= 20);
+    if (showMachineBadge) {
       const offMidX = (offP1.x + offP2.x) / 2;
       const offMidY = (offP1.y + offP2.y) / 2;
 

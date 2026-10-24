@@ -97,6 +97,9 @@
           <button class="cad-tool-btn active" id="btn-toggle-clearance" title="Alternar Zonas de Seguridad / Offset entre Máquinas">
             🛡
           </button>
+          <button class="cad-tool-btn" id="btn-toggle-clean-view" title="Modo Vista Limpia: Ocultar áreas de offset y alertas rojas de colisión [Atajo: Tecla V]">
+            ✨
+          </button>
           <button class="cad-tool-btn active" id="btn-toggle-wall-snap" title="Snap Magnético a Muros (Clic para alternar)">
             🧲
           </button>
@@ -352,9 +355,11 @@
             <span class="legend-chip snap-badge active-snap" id="status-snap-indicator" title="Clic para alternar Snap Magnético a Muros">🧲 Snap Muros: ON</span>
             <span class="legend-chip snap-badge active-snap" id="status-object-snap-indicator" title="Clic para alternar Snap y Offsets entre Objetos y Zonas">🧩 Snap Objetos: ON</span>
             <span class="legend-chip snap-badge disabled-snap" id="status-tool-measure" title="Clic para activar/desactivar Herramienta Medir">📐 Medir: OFF</span>
+            <span class="legend-chip snap-badge disabled-snap" id="status-clean-view-indicator" title="Clic para alternar Modo Vista Limpia (Oculta offsets y colisiones) [Atajo: Tecla V]" style="cursor: pointer;">✨ Vista Limpia: OFF</span>
             <span>Escala: 1.0 m</span>
           </div>
           <div class="status-hints">
+            <span><kbd class="kbd-badge">V</kbd> Vista Limpia</span>
             <span><kbd class="kbd-badge">Ctrl + Clic</kbd> Selección Múltiple</span>
             <span><kbd class="kbd-badge">Espacio</kbd> Pan</span>
           </div>
@@ -511,6 +516,6 @@
   </div>
 
   <!-- Scripts ES Modules -->
-  <script type="module" src="js/app.js?v=2.4"></script>
+  <script type="module" src="js/app.js?v=2.5"></script>
 </body>
 </html>
